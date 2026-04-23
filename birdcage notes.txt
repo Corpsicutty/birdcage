@@ -1,0 +1,14 @@
+splash screen: solo? group?
+
+easy way to add and remove strokes to player (tap to add stroke, longpress to drill in and edit/type a number in,
+or swipe left to remove a stroke, swipe right to add a stroke)
+
+generic image representing hole number that you're on ( basket with flag above it with number on it)
+--expand this in the future to add the actual overhead layout of the course's hole)
+
+session codes (each player can enter the session code on their own phone on the site to real-time edit their
+own score (probably supabase)
+
+free to use? add-supported (disc-golf related ads only, banner adds well placed within app?)
+--buy me a coffee only?
+
