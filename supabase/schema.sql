@@ -8,6 +8,7 @@ create table if not exists public.sessions (
   code text not null unique check (char_length(code) = 6),
   status text not null default 'active' check (status in ('active', 'ended')),
   created_by_token text not null,
+  hole_pars int[] not null default (array_fill(3, array[9])::int[]),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null default (now() + interval '24 hours'),
   ended_at timestamptz
@@ -37,9 +38,28 @@ create index if not exists idx_players_session on public.players(session_id);
 create index if not exists idx_scores_session on public.scores(session_id);
 create index if not exists idx_scores_player on public.scores(player_id);
 
-alter publication supabase_realtime add table public.sessions;
-alter publication supabase_realtime add table public.players;
-alter publication supabase_realtime add table public.scores;
+-- Idempotent: safe if tables are already in the publication (re-runs / partial applies).
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'sessions'
+  ) then
+    alter publication supabase_realtime add table public.sessions;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'players'
+  ) then
+    alter publication supabase_realtime add table public.players;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'scores'
+  ) then
+    alter publication supabase_realtime add table public.scores;
+  end if;
+end $$;
 
 alter table public.sessions enable row level security;
 alter table public.players enable row level security;

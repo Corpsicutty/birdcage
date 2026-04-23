@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Damion&display=swap");
+
 :root {
   color-scheme: light;
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
@@ -36,7 +38,7 @@ input {
   border-radius: 22px;
   overflow: hidden;
   position: relative;
-  box-shadow: 0 12px 32px rgba(12, 22, 12, 0.25);
+  box-shadow: none;
 }
 
 .screen {
@@ -53,7 +55,128 @@ input {
 }
 
 .splash-card {
-  margin: -8px 16px 16px;
+  margin: 18px 16px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.brand-title {
+  margin: 0;
+  margin-top: 1.5rem;
+  width: 100%;
+  text-align: center;
+  font-family: "Damion", cursive;
+  font-size: 4.15rem;
+  font-weight: 400;
+  line-height: 1;
+  color: #1d2a1e;
+}
+
+.rejoin-block {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.rejoin-button {
+  width: 100%;
+  border: 1px solid #c4d0b7;
+  border-radius: 999px;
+  padding: 12px 16px;
+  background: #f1f5ec;
+  color: #2d3b2b;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.rejoin-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.rejoin-code {
+  font-size: 0.85rem;
+  color: #5c6c5a;
+  letter-spacing: 0.04em;
+}
+
+.splash-subtitle,
+.group-session-subtitle {
+  max-width: 320px;
+  margin: 0.75rem 0 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.splash-subtitle strong,
+.group-session-subtitle strong {
+  font-weight: 700;
+  color: #1d2a1e;
+}
+
+.group-session-screen {
+  align-items: center;
+  text-align: center;
+  gap: 0;
+}
+
+.group-session-screen h2 {
+  width: 100%;
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 2.125rem;
+  line-height: 1.15;
+}
+
+.group-session-actions {
+  width: 100%;
+  margin-top: 2.25rem;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.group-session-actions .primary-button,
+.group-session-actions .secondary-button {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px;
+}
+
+.group-session-actions .ghost-button {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 18px;
+}
+
+.splash-actions {
+  width: 100%;
+  margin-top: 2.25rem;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.splash-actions > .primary-button,
+.splash-actions > .secondary-button {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .card {
@@ -61,6 +184,11 @@ input {
   border: 1px solid #e5e2d8;
   border-radius: 18px;
   padding: 16px;
+}
+
+.card.splash-card {
+  border: none;
+  background: transparent;
 }
 
 .simple-screen {
@@ -92,6 +220,43 @@ p {
   color: #4d5e50;
 }
 
+.join-session-screen {
+  align-items: center;
+  text-align: center;
+}
+
+.field-label--join-code {
+  display: block;
+  width: 100%;
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1d2a1e;
+}
+
+.inline-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.inline-actions .primary-button,
+.inline-actions .secondary-button,
+.inline-actions .ghost-button {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px;
+}
+
 .text-input {
   width: 100%;
   border: 1px solid #d4d8cb;
@@ -116,6 +281,92 @@ p {
   padding: 12px 16px;
   cursor: pointer;
   transition: opacity 0.2s ease;
+}
+
+.splash-card .rejoin-button {
+  width: min(100%, 280px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.splash-card .splash-actions > .primary-button,
+.splash-card .splash-actions > .secondary-button {
+  width: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 10px;
+}
+
+.splash-actions .rejoin-block {
+  flex: 1 1 100%;
+  width: 100%;
+  align-items: center;
+}
+
+.button-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(24, 42, 24, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  line-height: 1;
+  color: #2f4330;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.button-label {
+  font-weight: 600;
+}
+
+.button-icon--solo::before {
+  content: "";
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.button-icon--group::before,
+.button-icon--group::after {
+  content: none;
+}
+
+.button-icon--group {
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: auto;
+  min-width: 1.8rem;
+}
+
+.button-icon--group span {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.button-icon--group span:nth-child(2) {
+  transform: translateY(-0.12rem);
+}
+
+.button-icon--rejoin {
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .primary-button:disabled,
@@ -204,10 +455,42 @@ p {
   margin: 0 8px;
 }
 
-.flag-img {
+/* Hole number is positioned for img/flag.png: must sit *inside* the green pennant (not sky, not outer tip). */
+.flag-frame {
+  /* Lower % = too high (into sky). Higher % = into green / basket — tune to center of the triangle. */
+  --flag-number-top: 22%;
+  /* Pole is left; tip is right — nudge for optical center in the green. */
+  --flag-number-left: 52.2%;
+  position: relative;
+  line-height: 0;
   width: 100%;
   border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgba(24, 42, 24, 0.08);
+}
+
+.flag-img {
+  width: 100%;
   display: block;
+  border-radius: 0;
+}
+
+.flag-hole-number {
+  position: absolute;
+  left: var(--flag-number-left, 52.2%);
+  top: var(--flag-number-top, 22%);
+  transform: translate(-50%, -50%);
+  font-family: "Damion", cursive;
+  font-size: clamp(1.75rem, 9.5vw, 2.75rem);
+  font-weight: 400;
+  line-height: 1;
+  color: #e8e4d8;
+  text-shadow:
+    0 0 1px #0d140d,
+    0 0 10px rgba(0, 0, 0, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .score-card {
@@ -334,15 +617,6 @@ p {
   gap: 8px;
 }
 
-.course-title {
-  position: absolute;
-  top: 12px;
-  left: 16px;
-  font-weight: 700;
-  color: #eff6e8;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
 .error-banner {
   margin: 8px 16px 16px;
   font-size: 0.85rem;
@@ -350,4 +624,91 @@ p {
   border-radius: 10px;
   background: #fff0e8;
   color: #985d43;
+}
+
+.end-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+  background: rgba(20, 27, 20, 0.4);
+  backdrop-filter: blur(1px);
+}
+
+.end-dialog-card {
+  width: min(100%, 360px);
+  background: #f8f7f1;
+  border: 1px solid #d8ddcf;
+  border-radius: 18px;
+  padding: 16px 16px 12px;
+  text-align: center;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.18);
+}
+
+.end-dialog-card h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+
+.end-dialog-card p {
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  color: #4a5b4c;
+  line-height: 1.35;
+}
+
+.end-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.par-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+  background: rgba(20, 27, 20, 0.45);
+  backdrop-filter: blur(1px);
+}
+
+.par-dialog-hint {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: #4f6150;
+  line-height: 1.35;
+}
+
+.hole-meta {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+.par-tap {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.par-cell {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.par-cell--editable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: #8aa382;
+  text-underline-offset: 2px;
 }

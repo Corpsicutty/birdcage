@@ -3,10 +3,13 @@ export type SessionStatus = "active" | "ended";
 export interface SessionRecord {
   id: string;
   code: string;
+  created_by_token: string;
   created_at: string;
   expires_at: string;
   status: SessionStatus;
   ended_at: string | null;
+  /** One value per hole (length `HOLE_COUNT`); all default to 3 until the session creator edits. */
+  hole_pars: number[];
 }
 
 export interface PlayerRecord {
@@ -27,6 +30,4 @@ export interface ScoreRecord {
 
 export interface Hole {
   number: number;
-  par: number;
-  distanceFt: number;
 }

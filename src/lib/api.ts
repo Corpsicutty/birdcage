@@ -1,4 +1,4 @@
-import { HOLES } from "../data/course";
+import { defaultHolePars, HOLES, normalizeHolePars } from "../data/course";
 import type { PlayerRecord, ScoreRecord, SessionRecord } from "../types";
 import { generateSessionCode } from "./sessionCode";
 import { supabase } from "./supabase";
@@ -9,7 +9,15 @@ export interface SessionSnapshot {
   scores: ScoreRecord[];
 }
 
-const SESSION_SELECT = "id, code, created_at, expires_at, status, ended_at";
+const SESSION_SELECT =
+  "id, code, created_by_token, created_at, expires_at, status, ended_at, hole_pars";
+
+function mapSessionRow(row: Record<string, unknown>): SessionRecord {
+  return {
+    ...(row as unknown as SessionRecord),
+    hole_pars: normalizeHolePars(row.hole_pars)
+  };
+}
 
 function requireSupabase() {
   if (!supabase) {
@@ -58,13 +66,14 @@ export async function createSession(
         code,
         status: "active",
         created_by_token: creatorToken,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        hole_pars: defaultHolePars()
       })
       .select(SESSION_SELECT)
       .single();
 
     if (!error && data) {
-      createdSession = data as SessionRecord;
+      createdSession = mapSessionRow(data as Record<string, unknown>);
       break;
     }
     lastError = error?.message ?? "Unable to create session.";
@@ -122,7 +131,7 @@ export async function getSessionByCode(code: string): Promise<SessionRecord | nu
     throw new Error(error.message);
   }
 
-  const session = data as SessionRecord;
+  const session = mapSessionRow(data as Record<string, unknown>);
   const isExpired = new Date(session.expires_at).getTime() <= Date.now();
   if (session.status !== "active" || isExpired) {
     return null;
@@ -152,7 +161,7 @@ export async function getSessionSnapshot(sessionId: string): Promise<SessionSnap
   }
 
   return {
-    session: sessionData as SessionRecord,
+    session: mapSessionRow(sessionData as Record<string, unknown>),
     players: players as PlayerRecord[],
     scores: scores as ScoreRecord[]
   };
@@ -244,6 +253,19 @@ export async function endSession(sessionId: string) {
   const { error } = await client
     .from("sessions")
     .update({ status: "ended", ended_at: new Date().toISOString() })
+    .eq("id", sessionId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function setSessionHolePars(sessionId: string, holePars: number[]) {
+  const client = requireSupabase();
+  const normalized = normalizeHolePars(holePars);
+  const { error } = await client
+    .from("sessions")
+    .update({ hole_pars: normalized })
     .eq("id", sessionId);
 
   if (error) {
