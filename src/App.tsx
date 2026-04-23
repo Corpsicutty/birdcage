@@ -948,9 +948,11 @@ export default function App() {
                   )}
                 </p>
               </div>
-              <button className="icon-text-button" onClick={() => setEndConfirmOpen(true)} type="button">
-                End
-              </button>
+              {playMode === "group" && (
+                <button className="icon-text-button" onClick={() => setEndConfirmOpen(true)} type="button">
+                  End
+                </button>
+              )}
             </header>
 
             <div className="flag-frame" aria-hidden="true">
