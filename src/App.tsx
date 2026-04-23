@@ -30,6 +30,7 @@ import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import type { PlayerRecord } from "./types";
 import flagImg from "../img/flag.png";
 import headerImg from "../img/header.png";
+import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
 
 type View = "splash" | "group-menu" | "join-session" | "new-session" | "claim-name" | "play";
 type PlayMode = "solo" | "group" | null;
@@ -782,6 +783,17 @@ export default function App() {
                   </div>
                 )}
               </div>
+            </div>
+            <div className="splash-support">
+              <a
+                className="support-link"
+                href="https://buymeacoffee.com/JerJones"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img src={buyMeCoffeeIcon} alt="" className="support-link-icon" />
+                <span>buymeacoffee.com/JerJones</span>
+              </a>
             </div>
           </div>
         )}
