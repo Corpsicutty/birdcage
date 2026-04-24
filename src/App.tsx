@@ -86,10 +86,14 @@ export default function App() {
   const [parDialogOpen, setParDialogOpen] = useState(false);
   const [parEditHole, setParEditHole] = useState<number | null>(null);
   const [parDraft, setParDraft] = useState(String(DEFAULT_PAR));
-  const [swipedSoloHole, setSwipedSoloHole] = useState<number | null>(null);
+  const [swipeOpenHole, setSwipeOpenHole] = useState<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [swipeDraggingHole, setSwipeDraggingHole] = useState<number | null>(null);
 
   const parLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowTouchStartX = useRef<number | null>(null);
+  const rowTouchStartY = useRef<number | null>(null);
+  const rowTouchStartOffset = useRef(0);
 
   const soloHoles = useMemo(
     () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
@@ -552,7 +556,8 @@ export default function App() {
       }
       return [...current, ...Array.from({ length: 18 - current.length }, () => DEFAULT_PAR)];
     });
-    setSwipedSoloHole(null);
+    setSwipeOpenHole(null);
+    setSwipeOffset(0);
   }
 
   function deleteSoloHole(holeNumber: number) {
@@ -582,30 +587,65 @@ export default function App() {
       }
       return current;
     });
-    setSwipedSoloHole(null);
+    setSwipeOpenHole(null);
+    setSwipeOffset(0);
   }
 
-  function handleSoloRowTouchStart(holeNumber: number, clientX: number) {
+  function handleSoloRowTouchStart(holeNumber: number, clientX: number, clientY: number) {
     if (holeNumber <= 9) {
       rowTouchStartX.current = null;
+      rowTouchStartY.current = null;
       return;
     }
+    if (swipeOpenHole && swipeOpenHole !== holeNumber) {
+      setSwipeOpenHole(null);
+      setSwipeOffset(0);
+    }
     rowTouchStartX.current = clientX;
+    rowTouchStartY.current = clientY;
+    rowTouchStartOffset.current = swipeOpenHole === holeNumber ? swipeOffset : 0;
   }
 
-  function handleSoloRowTouchEnd(holeNumber: number, clientX: number) {
+  function handleSoloRowTouchMove(
+    holeNumber: number,
+    clientX: number,
+    clientY: number,
+    event: { preventDefault: () => void }
+  ) {
+    if (holeNumber <= 9 || rowTouchStartX.current == null || rowTouchStartY.current == null) {
+      return;
+    }
+    const deltaX = clientX - rowTouchStartX.current;
+    const deltaY = clientY - rowTouchStartY.current;
+    if (Math.abs(deltaX) < Math.abs(deltaY)) {
+      return;
+    }
+
+    event.preventDefault();
+    setSwipeDraggingHole(holeNumber);
+    const nextOffset = Math.max(-88, Math.min(0, rowTouchStartOffset.current + deltaX));
+    setSwipeOpenHole(holeNumber);
+    setSwipeOffset(nextOffset);
+  }
+
+  function handleSoloRowTouchEnd(holeNumber: number) {
     if (holeNumber <= 9 || rowTouchStartX.current == null) {
       return;
     }
-    const delta = clientX - rowTouchStartX.current;
     rowTouchStartX.current = null;
-    if (delta <= -30) {
-      setSwipedSoloHole(holeNumber);
+    rowTouchStartY.current = null;
+    setSwipeDraggingHole(null);
+
+    if (swipeOpenHole !== holeNumber) {
       return;
     }
-    if (delta >= 20) {
-      setSwipedSoloHole(null);
+    if (swipeOffset <= -44) {
+      setSwipeOpenHole(holeNumber);
+      setSwipeOffset(-88);
+      return;
     }
+    setSwipeOpenHole(null);
+    setSwipeOffset(0);
   }
 
   async function handleCreateSession() {
@@ -781,7 +821,6 @@ export default function App() {
                       onChange={(event) => setSoloName(event.target.value)}
                       placeholder="Name"
                       aria-label="Solo player name"
-                      maxLength={24}
                     />
                     {!soloName.trim() && <span className="solo-name-cursor" aria-hidden="true">|</span>}
                   </label>
@@ -792,24 +831,43 @@ export default function App() {
               {frontHoles.map((hole) => (
                 <tr
                   key={hole.number}
-                  className={swipedSoloHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  className={swipeOpenHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  style={
+                    swipeOpenHole === hole.number
+                      ? {
+                          transform: `translateX(${swipeOffset}px)`,
+                          transition:
+                            swipeDraggingHole === hole.number ? "none" : "transform 180ms ease-out"
+                        }
+                      : undefined
+                  }
                   onTouchStart={(event) =>
-                    handleSoloRowTouchStart(hole.number, event.touches[0]?.clientX ?? 0)
+                    handleSoloRowTouchStart(
+                      hole.number,
+                      event.touches[0]?.clientX ?? 0,
+                      event.touches[0]?.clientY ?? 0
+                    )
                   }
-                  onTouchEnd={(event) =>
-                    handleSoloRowTouchEnd(hole.number, event.changedTouches[0]?.clientX ?? 0)
+                  onTouchMove={(event) =>
+                    handleSoloRowTouchMove(
+                      hole.number,
+                      event.touches[0]?.clientX ?? 0,
+                      event.touches[0]?.clientY ?? 0,
+                      event
+                    )
                   }
+                  onTouchEnd={() => handleSoloRowTouchEnd(hole.number)}
                 >
                   <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
                     <span>{hole.number}</span>
-                    {hole.number > 9 && swipedSoloHole === hole.number && (
+                    {hole.number > 9 && swipeOpenHole === hole.number && swipeOffset <= -44 && (
                       <button
                         className="solo-hole-delete"
                         type="button"
                         onClick={() => deleteSoloHole(hole.number)}
                         aria-label={`Remove hole ${hole.number}`}
                       >
-                        -
+                        Delete
                       </button>
                     )}
                   </td>
@@ -847,24 +905,43 @@ export default function App() {
               {backHoles.map((hole) => (
                 <tr
                   key={hole.number}
-                  className={swipedSoloHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  className={swipeOpenHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  style={
+                    swipeOpenHole === hole.number
+                      ? {
+                          transform: `translateX(${swipeOffset}px)`,
+                          transition:
+                            swipeDraggingHole === hole.number ? "none" : "transform 180ms ease-out"
+                        }
+                      : undefined
+                  }
                   onTouchStart={(event) =>
-                    handleSoloRowTouchStart(hole.number, event.touches[0]?.clientX ?? 0)
+                    handleSoloRowTouchStart(
+                      hole.number,
+                      event.touches[0]?.clientX ?? 0,
+                      event.touches[0]?.clientY ?? 0
+                    )
                   }
-                  onTouchEnd={(event) =>
-                    handleSoloRowTouchEnd(hole.number, event.changedTouches[0]?.clientX ?? 0)
+                  onTouchMove={(event) =>
+                    handleSoloRowTouchMove(
+                      hole.number,
+                      event.touches[0]?.clientX ?? 0,
+                      event.touches[0]?.clientY ?? 0,
+                      event
+                    )
                   }
+                  onTouchEnd={() => handleSoloRowTouchEnd(hole.number)}
                 >
                   <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
                     <span>{hole.number}</span>
-                    {hole.number > 9 && swipedSoloHole === hole.number && (
+                    {hole.number > 9 && swipeOpenHole === hole.number && swipeOffset <= -44 && (
                       <button
                         className="solo-hole-delete"
                         type="button"
                         onClick={() => deleteSoloHole(hole.number)}
                         aria-label={`Remove hole ${hole.number}`}
                       >
-                        -
+                        Delete
                       </button>
                     )}
                   </td>

@@ -655,7 +655,7 @@ p {
 }
 
 .solo-name-header-input {
-  width: 4.5ch;
+  width: 10ch;
   max-width: 100%;
   border: 0;
   background: transparent;
@@ -664,6 +664,9 @@ p {
   font-weight: 700;
   text-align: center;
   padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .solo-name-header-input::placeholder {
@@ -716,21 +719,28 @@ p {
   position: relative;
 }
 
+.solo-row {
+  touch-action: pan-y;
+  will-change: transform;
+}
+
 .solo-hole-delete {
-  margin-left: 6px;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 999px;
-  border: 1px solid #a46a5e;
-  background: #fff0ec;
-  color: #8f4e40;
-  font-size: 0.85rem;
+  margin-left: 8px;
+  min-width: 4.2rem;
+  height: 1.7rem;
+  border-radius: 8px;
+  border: 0;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 0 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .totals-row td {
