@@ -22,9 +22,11 @@ import {
 import {
   clearActiveGroupSession,
   getOrCreatePlayerToken,
+  readSoloSession,
   readActiveGroupSession,
   type ActiveGroupSessionV1,
-  writeActiveGroupSession
+  writeActiveGroupSession,
+  writeSoloSession
 } from "./lib/storage";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import type { PlayerRecord } from "./types";
@@ -54,6 +56,7 @@ function formatRelative(value: number): string {
 }
 
 export default function App() {
+  const storedSolo = useMemo(() => readSoloSession(), []);
   const playerToken = useMemo(() => getOrCreatePlayerToken(), []);
   const [view, setView] = useState<View>("splash");
   const [playMode, setPlayMode] = useState<PlayMode>(null);
@@ -65,23 +68,38 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [pendingSnapshot, setPendingSnapshot] = useState<SessionSnapshot | null>(null);
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
-  const [currentHole, setCurrentHole] = useState(1);
+  const [currentHole, setCurrentHole] = useState(() => {
+    const maxHole = Math.max(1, storedSolo?.holePars?.length ?? defaultHolePars().length);
+    return Math.min(Math.max(1, storedSolo?.lastHole ?? 1), maxHole);
+  });
 
   const [joinCode, setJoinCode] = useState("");
   const [newSessionNames, setNewSessionNames] = useState<string[]>(["", ""]);
   const [newJoinName, setNewJoinName] = useState("");
 
-  const [soloName, setSoloName] = useState("You");
-  const [soloScores, setSoloScores] = useState<Record<number, number | null>>({});
-  const [soloHolePars, setSoloHolePars] = useState(() => defaultHolePars());
+  const [soloName, setSoloName] = useState(() => storedSolo?.name ?? "");
+  const [soloScores, setSoloScores] = useState<Record<number, number | null>>(
+    () => storedSolo?.scores ?? {}
+  );
+  const [soloHolePars, setSoloHolePars] = useState(() => storedSolo?.holePars ?? defaultHolePars());
 
   const [parDialogOpen, setParDialogOpen] = useState(false);
   const [parEditHole, setParEditHole] = useState<number | null>(null);
   const [parDraft, setParDraft] = useState(String(DEFAULT_PAR));
+  const [swipedSoloHole, setSwipedSoloHole] = useState<number | null>(null);
 
   const parLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rowTouchStartX = useRef<number | null>(null);
 
-  const activeHole = HOLES[currentHole - 1];
+  const soloHoles = useMemo(
+    () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
+    [soloHolePars.length]
+  );
+
+  const activeHole =
+    playMode === "solo"
+      ? soloHoles[currentHole - 1] ?? { number: 1 }
+      : HOLES[currentHole - 1] ?? HOLES[0];
   const activePlayer =
     playMode === "group"
       ? snapshot?.players.find((player) => player.id === activePlayerId) ?? null
@@ -268,6 +286,18 @@ export default function App() {
   }, [playMode, snapshot?.session.id, activePlayerId, currentHole]);
 
   useEffect(() => {
+    const maxHole = Math.max(1, soloHolePars.length);
+    const safeLastHole = Math.min(Math.max(1, currentHole), maxHole);
+    writeSoloSession({
+      v: 1,
+      name: soloName,
+      scores: soloScores,
+      holePars: soloHolePars,
+      lastHole: safeLastHole
+    });
+  }, [soloName, soloScores, soloHolePars, currentHole]);
+
+  useEffect(() => {
     if (playMode !== "group" || !snapshot) {
       return;
     }
@@ -342,7 +372,9 @@ export default function App() {
     setError(null);
 
     if (playMode === "solo") {
-      setSoloHolePars((current) => withHoleParReplaced(current, parEditHole, clamped));
+      setSoloHolePars((current) =>
+        current.map((par, index) => (index === parEditHole - 1 ? clamped : par))
+      );
       setParDialogOpen(false);
       return;
     }
@@ -513,6 +545,69 @@ export default function App() {
     }
   }
 
+  function expandSoloToBackNine() {
+    setSoloHolePars((current) => {
+      if (current.length >= 18) {
+        return current;
+      }
+      return [...current, ...Array.from({ length: 18 - current.length }, () => DEFAULT_PAR)];
+    });
+    setSwipedSoloHole(null);
+  }
+
+  function deleteSoloHole(holeNumber: number) {
+    if (holeNumber <= 9 || holeNumber > soloHolePars.length) {
+      return;
+    }
+
+    const removeIndex = holeNumber - 1;
+    setSoloHolePars((current) => current.filter((_, index) => index !== removeIndex));
+    setSoloScores((current) => {
+      const next: Record<number, number | null> = {};
+      for (let number = 1; number <= soloHolePars.length; number += 1) {
+        if (number === holeNumber) {
+          continue;
+        }
+        const targetNumber = number > holeNumber ? number - 1 : number;
+        next[targetNumber] = current[number] ?? null;
+      }
+      return next;
+    });
+    setCurrentHole((current) => {
+      if (current === holeNumber) {
+        return Math.max(1, Math.min(current, soloHolePars.length - 1));
+      }
+      if (current > holeNumber) {
+        return current - 1;
+      }
+      return current;
+    });
+    setSwipedSoloHole(null);
+  }
+
+  function handleSoloRowTouchStart(holeNumber: number, clientX: number) {
+    if (holeNumber <= 9) {
+      rowTouchStartX.current = null;
+      return;
+    }
+    rowTouchStartX.current = clientX;
+  }
+
+  function handleSoloRowTouchEnd(holeNumber: number, clientX: number) {
+    if (holeNumber <= 9 || rowTouchStartX.current == null) {
+      return;
+    }
+    const delta = clientX - rowTouchStartX.current;
+    rowTouchStartX.current = null;
+    if (delta <= -30) {
+      setSwipedSoloHole(holeNumber);
+      return;
+    }
+    if (delta >= 20) {
+      setSwipedSoloHole(null);
+    }
+  }
+
   async function handleCreateSession() {
     if (!isSupabaseConfigured) {
       setError("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY first.");
@@ -636,7 +731,7 @@ export default function App() {
 
   function renderScoreTable() {
     if (playMode === "solo") {
-      const relative = HOLES.reduce((sum, hole) => {
+      const relative = soloHoles.reduce((sum, hole) => {
         const strokes = soloScores[hole.number];
         if (strokes == null) {
           return sum;
@@ -644,6 +739,32 @@ export default function App() {
         const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
         return sum + (strokes - par);
       }, 0);
+      const frontHoles = soloHoles.filter((hole) => hole.number <= 9);
+      const backHoles = soloHoles.filter((hole) => hole.number > 9);
+      const frontRelative = frontHoles.reduce((sum, hole) => {
+        const strokes = soloScores[hole.number];
+        if (strokes == null) {
+          return sum;
+        }
+        const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
+        return sum + (strokes - par);
+      }, 0);
+      const backRelative = backHoles.reduce((sum, hole) => {
+        const strokes = soloScores[hole.number];
+        if (strokes == null) {
+          return sum;
+        }
+        const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
+        return sum + (strokes - par);
+      }, 0);
+      const frontParTotal = frontHoles.reduce(
+        (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
+        0
+      );
+      const backParTotal = backHoles.reduce(
+        (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
+        0
+      );
 
       return (
         <div className="score-table-wrap">
@@ -652,13 +773,46 @@ export default function App() {
               <tr>
                 <th>HOLE</th>
                 <th>PAR</th>
-                <th>{soloName || "You"}</th>
+                <th>
+                  <label className="solo-name-header-wrap">
+                    <input
+                      className="solo-name-header-input"
+                      value={soloName}
+                      onChange={(event) => setSoloName(event.target.value)}
+                      placeholder="Name"
+                      aria-label="Solo player name"
+                      maxLength={24}
+                    />
+                    {!soloName.trim() && <span className="solo-name-cursor" aria-hidden="true">|</span>}
+                  </label>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {HOLES.map((hole) => (
-                <tr key={hole.number}>
-                  <td>{hole.number}</td>
+              {frontHoles.map((hole) => (
+                <tr
+                  key={hole.number}
+                  className={swipedSoloHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  onTouchStart={(event) =>
+                    handleSoloRowTouchStart(hole.number, event.touches[0]?.clientX ?? 0)
+                  }
+                  onTouchEnd={(event) =>
+                    handleSoloRowTouchEnd(hole.number, event.changedTouches[0]?.clientX ?? 0)
+                  }
+                >
+                  <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
+                    <span>{hole.number}</span>
+                    {hole.number > 9 && swipedSoloHole === hole.number && (
+                      <button
+                        className="solo-hole-delete"
+                        type="button"
+                        onClick={() => deleteSoloHole(hole.number)}
+                        aria-label={`Remove hole ${hole.number}`}
+                      >
+                        -
+                      </button>
+                    )}
+                  </td>
                   <td
                     className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
                     onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
@@ -672,7 +826,69 @@ export default function App() {
                 </tr>
               ))}
               <tr className="totals-row">
-                <td>Front 9</td>
+                <td>
+                  <div className="totals-label-wrap">
+                    {soloHolePars.length < 18 && (
+                      <button
+                        className="expand-holes-button"
+                        type="button"
+                        onClick={expandSoloToBackNine}
+                        aria-label="Expand to 18 holes"
+                      >
+                        +
+                      </button>
+                    )}
+                    <span>Front 9</span>
+                  </div>
+                </td>
+                <td>{frontParTotal}</td>
+                <td>{formatRelative(frontRelative)}</td>
+              </tr>
+              {backHoles.map((hole) => (
+                <tr
+                  key={hole.number}
+                  className={swipedSoloHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
+                  onTouchStart={(event) =>
+                    handleSoloRowTouchStart(hole.number, event.touches[0]?.clientX ?? 0)
+                  }
+                  onTouchEnd={(event) =>
+                    handleSoloRowTouchEnd(hole.number, event.changedTouches[0]?.clientX ?? 0)
+                  }
+                >
+                  <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
+                    <span>{hole.number}</span>
+                    {hole.number > 9 && swipedSoloHole === hole.number && (
+                      <button
+                        className="solo-hole-delete"
+                        type="button"
+                        onClick={() => deleteSoloHole(hole.number)}
+                        aria-label={`Remove hole ${hole.number}`}
+                      >
+                        -
+                      </button>
+                    )}
+                  </td>
+                  <td
+                    className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
+                    onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
+                    onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
+                    onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
+                    onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                  >
+                    {parForHole(hole.number)}
+                  </td>
+                  <td>{soloScores[hole.number] ?? "-"}</td>
+                </tr>
+              ))}
+              {backHoles.length > 0 && (
+                <tr className="totals-row">
+                  <td>Back 9</td>
+                  <td>{backParTotal}</td>
+                  <td>{formatRelative(backRelative)}</td>
+                </tr>
+              )}
+              <tr className="totals-row">
+                <td>Total</td>
                 <td>{totalParForTable}</td>
                 <td>{formatRelative(relative)}</td>
               </tr>
@@ -757,9 +973,8 @@ export default function App() {
                   className="primary-button"
                   onClick={() => {
                     setPlayMode("solo");
-                    setSoloScores({});
-                    setSoloHolePars(defaultHolePars());
-                    setCurrentHole(1);
+                    const maxHole = Math.max(1, soloHolePars.length);
+                    setCurrentHole((current) => Math.min(Math.max(1, current), maxHole));
                     setView("play");
                   }}
                 >
@@ -1015,40 +1230,31 @@ export default function App() {
                   +
                 </button>
               </div>
+
+              <div className="hole-nav">
+                <button
+                  className="secondary-button"
+                  disabled={currentHole === 1}
+                  onClick={() => setCurrentHole((current) => Math.max(1, current - 1))}
+                >
+                  Previous Hole
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={currentHole === (playMode === "solo" ? soloHoles.length : HOLES.length)}
+                  onClick={() =>
+                    setCurrentHole((current) =>
+                      Math.min(playMode === "solo" ? soloHoles.length : HOLES.length, current + 1)
+                    )
+                  }
+                >
+                  Next Hole
+                </button>
+              </div>
             </section>
 
             {renderScoreTable()}
 
-            <div className="hole-nav">
-              <button
-                className="secondary-button"
-                disabled={currentHole === 1}
-                onClick={() => setCurrentHole((current) => Math.max(1, current - 1))}
-              >
-                Previous Hole
-              </button>
-              <button
-                className="primary-button"
-                disabled={currentHole === HOLES.length}
-                onClick={() => setCurrentHole((current) => Math.min(HOLES.length, current + 1))}
-              >
-                Next Hole
-              </button>
-            </div>
-
-            {playMode === "solo" && (
-              <div className="inline-input-row">
-                <label className="field-label" htmlFor="solo-name">
-                  Name
-                </label>
-                <input
-                  id="solo-name"
-                  className="text-input"
-                  value={soloName}
-                  onChange={(event) => setSoloName(event.target.value)}
-                />
-              </div>
-            )}
           </div>
         )}
 
