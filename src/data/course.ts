@@ -48,12 +48,26 @@ export function normalizeHolePars(raw: unknown): number[] {
   return defaults;
 }
 
+/** Clamps every par; preserves array length. Empty / invalid input falls back to the default 9-hole list. */
+export function normalizeHoleParsArray(raw: unknown): number[] {
+  if (!raw || !Array.isArray(raw) || raw.length === 0) {
+    return defaultHolePars();
+  }
+  return raw.map((v) => {
+    const n = Math.floor(Number(v));
+    if (Number.isFinite(n)) {
+      return clampPar(n);
+    }
+    return DEFAULT_PAR;
+  });
+}
+
 export function withHoleParReplaced(
   pars: number[],
   holeNumber: number,
   par: number
 ): number[] {
-  const next = [...normalizeHolePars(pars)];
+  const next = [...normalizeHoleParsArray(pars)];
   const i = holeNumber - 1;
   if (i < 0 || i >= next.length) {
     return next;

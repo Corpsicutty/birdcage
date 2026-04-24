@@ -8,7 +8,7 @@ export interface SessionRecord {
   expires_at: string;
   status: SessionStatus;
   ended_at: string | null;
-  /** One value per hole (length `HOLE_COUNT`); all default to 3 until the session creator edits. */
+  /** One par per hole, in order (length matches number of holes; often 9 at creation, may grow if the session creator extends the course). */
   hole_pars: number[];
 }
 

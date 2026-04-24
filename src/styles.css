@@ -469,6 +469,18 @@ p {
   align-items: center;
 }
 
+.top-header--group {
+  grid-template-columns: 56px 1fr auto;
+}
+
+.header-right-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  min-width: 0;
+}
+
 .icon-text-button {
   border: 0;
   background: transparent;

@@ -1,4 +1,9 @@
-import { defaultHolePars, HOLES, normalizeHolePars } from "../data/course";
+import {
+  DEFAULT_PAR,
+  defaultHolePars,
+  normalizeHolePars,
+  normalizeHoleParsArray
+} from "../data/course";
 import type { PlayerRecord, ScoreRecord, SessionRecord } from "../types";
 import { generateSessionCode } from "./sessionCode";
 import { supabase } from "./supabase";
@@ -15,7 +20,7 @@ const SESSION_SELECT =
 function mapSessionRow(row: Record<string, unknown>): SessionRecord {
   return {
     ...(row as unknown as SessionRecord),
-    hole_pars: normalizeHolePars(row.hole_pars)
+    hole_pars: normalizeHoleParsArray(row.hole_pars)
   };
 }
 
@@ -26,13 +31,16 @@ function requireSupabase() {
   return supabase;
 }
 
-async function createEmptyScores(sessionId: string, playerId: string) {
+async function createEmptyScores(sessionId: string, playerId: string, holeCount: number) {
   const client = requireSupabase();
-  const rows = HOLES.map((hole) => ({
+  if (holeCount < 1) {
+    return;
+  }
+  const rows = Array.from({ length: holeCount }, (_, index) => ({
     session_id: sessionId,
     player_id: playerId,
-    hole_number: hole.number,
-    strokes: null
+    hole_number: index + 1,
+    strokes: null as null
   }));
 
   const { error } = await client.from("scores").insert(rows);
@@ -83,6 +91,8 @@ export async function createSession(
     throw new Error(lastError ?? "Unable to generate a unique session code.");
   }
 
+  const holeCount = createdSession.hole_pars.length;
+
   const playerInserts = cleanedNames.map((name, index) => ({
     session_id: createdSession.id,
     name,
@@ -99,7 +109,7 @@ export async function createSession(
   }
 
   for (const player of playerRows as PlayerRecord[]) {
-    await createEmptyScores(createdSession.id, player.id);
+    await createEmptyScores(createdSession.id, player.id, holeCount);
   }
 
   const snapshot = await getSessionSnapshot(createdSession.id);
@@ -222,7 +232,9 @@ export async function addPlayer(
     throw new Error(error?.message ?? "Unable to create player.");
   }
 
-  await createEmptyScores(sessionId, data.id);
+  const snap = await getSessionSnapshot(sessionId);
+  const holeCount = snap.session.hole_pars.length;
+  await createEmptyScores(sessionId, (data as PlayerRecord).id, holeCount);
   return data as PlayerRecord;
 }
 
@@ -262,7 +274,7 @@ export async function endSession(sessionId: string) {
 
 export async function setSessionHolePars(sessionId: string, holePars: number[]) {
   const client = requireSupabase();
-  const normalized = normalizeHolePars(holePars);
+  const normalized = normalizeHoleParsArray(holePars);
   const { error } = await client
     .from("sessions")
     .update({ hole_pars: normalized })
@@ -272,3 +284,137 @@ export async function setSessionHolePars(sessionId: string, holePars: number[]) 
     throw new Error(error.message);
   }
 }
+
+/** Appends new holes to the end of the round (par list + null score rows for all players). */
+export async function appendHolesToSession(sessionId: string, additionalPars: number[]) {
+  const client = requireSupabase();
+  if (additionalPars.length === 0) {
+    return;
+  }
+  const snap = await getSessionSnapshot(sessionId);
+  const current = snap.session.hole_pars;
+  const tail = additionalPars.map((v) => {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) ? Math.min(6, Math.max(2, n)) : DEFAULT_PAR;
+  });
+  const nextPars = [...current, ...tail];
+  const { error: upErr } = await client
+    .from("sessions")
+    .update({ hole_pars: nextPars })
+    .eq("id", sessionId);
+  if (upErr) {
+    throw new Error(upErr.message);
+  }
+
+  const fromHole = current.length + 1;
+  const toHole = nextPars.length;
+  const rows: {
+    session_id: string;
+    player_id: string;
+    hole_number: number;
+    strokes: null;
+  }[] = [];
+  for (const player of snap.players) {
+    for (let h = fromHole; h <= toHole; h += 1) {
+      rows.push({ session_id: sessionId, player_id: player.id, hole_number: h, strokes: null });
+    }
+  }
+  if (rows.length > 0) {
+    const { error: insErr } = await client.from("scores").insert(rows);
+    if (insErr) {
+      throw new Error(insErr.message);
+    }
+  }
+}
+
+/** Renumbers scores after a hole; deletes back-nine+ holes, updates hole_pars. */
+export async function removeHoleFromGroupSession(sessionId: string, holeNumber: number) {
+  const client = requireSupabase();
+  const snap = await getSessionSnapshot(sessionId);
+  if (holeNumber <= 9 || holeNumber > snap.session.hole_pars.length) {
+    return;
+  }
+  const { error: dErr } = await client
+    .from("scores")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("hole_number", holeNumber);
+  if (dErr) {
+    throw new Error(dErr.message);
+  }
+
+  const { data: shiftRows, error: shErr } = await client
+    .from("scores")
+    .select("id, hole_number")
+    .eq("session_id", sessionId)
+    .gt("hole_number", holeNumber)
+    .order("hole_number", { ascending: false });
+  if (shErr) {
+    throw new Error(shErr.message);
+  }
+  for (const row of shiftRows ?? []) {
+    const { error: uErr } = await client
+      .from("scores")
+      .update({ hole_number: row.hole_number - 1 })
+      .eq("id", row.id);
+    if (uErr) {
+      throw new Error(uErr.message);
+    }
+  }
+
+  const nextPars = snap.session.hole_pars.filter((_, index) => index !== holeNumber - 1);
+  const { error: pErr } = await client
+    .from("sessions")
+    .update({ hole_pars: nextPars })
+    .eq("id", sessionId);
+  if (pErr) {
+    throw new Error(pErr.message);
+  }
+}
+
+export async function clearStrokesOnHoleForSession(sessionId: string, holeNumber: number) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from("scores")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("hole_number", holeNumber);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function clearAllScoresInGroupSession(sessionId: string) {
+  const client = requireSupabase();
+  const snap = await getSessionSnapshot(sessionId);
+  const { error } = await client.from("scores").delete().eq("session_id", sessionId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const n = snap.session.hole_pars.length;
+  for (const p of snap.players) {
+    await createEmptyScores(sessionId, p.id, n);
+  }
+}
+
+export async function resetGroupSessionRoundToFrontNine(sessionId: string) {
+  const client = requireSupabase();
+  const snap = await getSessionSnapshot(sessionId);
+  const { error } = await client.from("scores").delete().eq("session_id", sessionId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const pars = defaultHolePars();
+  const { error: uErr } = await client
+    .from("sessions")
+    .update({ hole_pars: pars })
+    .eq("id", sessionId);
+  if (uErr) {
+    throw new Error(uErr.message);
+  }
+  for (const p of snap.players) {
+    await createEmptyScores(sessionId, p.id, pars.length);
+  }
+}
+
+export { normalizeHolePars };

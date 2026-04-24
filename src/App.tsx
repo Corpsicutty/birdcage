@@ -1,20 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_PAR,
+  HOLE_COUNT,
   HOLES,
   PAR_MAX,
   PAR_MIN,
   defaultHolePars,
+  normalizeHolePars,
   sumHolePars,
   withHoleParReplaced
 } from "./data/course";
 import {
   addPlayer,
+  appendHolesToSession,
   claimPlayer,
+  clearAllScoresInGroupSession,
+  clearStrokesOnHoleForSession,
   createSession,
   endSession,
   getSessionByCode,
   getSessionSnapshot,
+  removeHoleFromGroupSession,
+  resetGroupSessionRoundToFrontNine,
   setScore,
   setSessionHolePars,
   type SessionSnapshot
@@ -56,8 +63,54 @@ function formatRelative(value: number): string {
   return "E";
 }
 
+type SoloInitState = {
+  name: string;
+  scores: Record<number, number | null>;
+  holePars: number[];
+  lastHole: number;
+};
+
+/**
+ * On cold load, keep solo rounds to the front 9 only so the UI stays simple.
+ * Extra holes and scores for holes 10+ are not restored (user can add more with +).
+ */
+function buildInitialSoloState(): SoloInitState {
+  const stored = readSoloSession();
+  if (!stored) {
+    return {
+      name: "",
+      scores: {},
+      holePars: defaultHolePars(),
+      lastHole: 1
+    };
+  }
+
+  const sourcePars = Array.isArray(stored.holePars) ? stored.holePars : defaultHolePars();
+  const headPars = sourcePars.length > HOLE_COUNT ? sourcePars.slice(0, HOLE_COUNT) : sourcePars;
+  const holePars = normalizeHolePars(headPars);
+
+  const scores: Record<number, number | null> = {};
+  for (let hole = 1; hole <= HOLE_COUNT; hole += 1) {
+    if (Object.prototype.hasOwnProperty.call(stored.scores, hole)) {
+      scores[hole] = stored.scores[hole] ?? null;
+    }
+  }
+
+  const lastHole = Math.min(
+    Math.max(1, stored.lastHole),
+    Math.max(1, holePars.length)
+  );
+
+  return {
+    name: stored.name,
+    scores,
+    holePars,
+    lastHole
+  };
+}
+
 export default function App() {
-  const storedSolo = useMemo(() => readSoloSession(), []);
+  const soloInit = useMemo(() => buildInitialSoloState(), []);
   const playerToken = useMemo(() => getOrCreatePlayerToken(), []);
   const [view, setView] = useState<View>("splash");
   const [playMode, setPlayMode] = useState<PlayMode>(null);
@@ -69,20 +122,15 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [pendingSnapshot, setPendingSnapshot] = useState<SessionSnapshot | null>(null);
   const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
-  const [currentHole, setCurrentHole] = useState(() => {
-    const maxHole = Math.max(1, storedSolo?.holePars?.length ?? defaultHolePars().length);
-    return Math.min(Math.max(1, storedSolo?.lastHole ?? 1), maxHole);
-  });
+  const [currentHole, setCurrentHole] = useState(() => soloInit.lastHole);
 
   const [joinCode, setJoinCode] = useState("");
   const [newSessionNames, setNewSessionNames] = useState<string[]>(["", ""]);
   const [newJoinName, setNewJoinName] = useState("");
 
-  const [soloName, setSoloName] = useState(() => storedSolo?.name ?? "");
-  const [soloScores, setSoloScores] = useState<Record<number, number | null>>(
-    () => storedSolo?.scores ?? {}
-  );
-  const [soloHolePars, setSoloHolePars] = useState(() => storedSolo?.holePars ?? defaultHolePars());
+  const [soloName, setSoloName] = useState(() => soloInit.name);
+  const [soloScores, setSoloScores] = useState<Record<number, number | null>>(() => soloInit.scores);
+  const [soloHolePars, setSoloHolePars] = useState(() => soloInit.holePars);
 
   const [parDialogOpen, setParDialogOpen] = useState(false);
   const [parEditHole, setParEditHole] = useState<number | null>(null);
@@ -90,6 +138,9 @@ export default function App() {
   const [soloMenuOpen, setSoloMenuOpen] = useState(false);
   const [soloResetConfirmOpen, setSoloResetConfirmOpen] = useState(false);
   const [pendingSoloReset, setPendingSoloReset] = useState<SoloResetAction | null>(null);
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupResetConfirmOpen, setGroupResetConfirmOpen] = useState(false);
+  const [pendingGroupReset, setPendingGroupReset] = useState<SoloResetAction | null>(null);
 
   const parLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -98,10 +149,20 @@ export default function App() {
     [soloHolePars.length]
   );
 
+  const groupHoles = useMemo(() => {
+    if (playMode !== "group" || !snapshot) {
+      return [];
+    }
+    const n = snapshot.session.hole_pars.length;
+    return Array.from({ length: n }, (_, index) => ({ number: index + 1 }));
+  }, [playMode, snapshot?.session.hole_pars, snapshot?.session.id]);
+
   const activeHole =
     playMode === "solo"
       ? soloHoles[currentHole - 1] ?? { number: 1 }
-      : HOLES[currentHole - 1] ?? HOLES[0];
+      : playMode === "group" && groupHoles.length > 0
+        ? groupHoles[currentHole - 1] ?? { number: 1 }
+        : HOLES[currentHole - 1] ?? HOLES[0];
   const activePlayer =
     playMode === "group"
       ? snapshot?.players.find((player) => player.id === activePlayerId) ?? null
@@ -117,7 +178,19 @@ export default function App() {
 
   const isSessionCreator =
     playMode === "group" && !!snapshot && snapshot.session.created_by_token === playerToken;
+  const groupSessionLive =
+    playMode === "group" &&
+    !!snapshot &&
+    snapshot.session.status === "active" &&
+    new Date(snapshot.session.expires_at).getTime() > Date.now();
+  const canEditGroupLayout = isSessionCreator && groupSessionLive;
   const canEditPar = playMode === "solo" || isSessionCreator;
+  const playHoleCount =
+    playMode === "solo"
+      ? soloHoles.length
+      : playMode === "group" && snapshot
+        ? snapshot.session.hole_pars.length
+        : HOLES.length;
 
   function parForHole(holeNumber: number): number {
     if (playMode === "solo") {
@@ -184,6 +257,9 @@ export default function App() {
     setSoloMenuOpen(false);
     setSoloResetConfirmOpen(false);
     setPendingSoloReset(null);
+    setGroupMenuOpen(false);
+    setGroupResetConfirmOpen(false);
+    setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -203,6 +279,9 @@ export default function App() {
     setSoloMenuOpen(false);
     setSoloResetConfirmOpen(false);
     setPendingSoloReset(null);
+    setGroupMenuOpen(false);
+    setGroupResetConfirmOpen(false);
+    setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -220,6 +299,9 @@ export default function App() {
     setSoloMenuOpen(false);
     setSoloResetConfirmOpen(false);
     setPendingSoloReset(null);
+    setGroupMenuOpen(false);
+    setGroupResetConfirmOpen(false);
+    setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -297,6 +379,9 @@ export default function App() {
   }, [playMode, snapshot?.session.id, activePlayerId, currentHole]);
 
   useEffect(() => {
+    if (playMode !== "solo") {
+      return;
+    }
     const maxHole = Math.max(1, soloHolePars.length);
     const safeLastHole = Math.min(Math.max(1, currentHole), maxHole);
     writeSoloSession({
@@ -306,7 +391,7 @@ export default function App() {
       holePars: soloHolePars,
       lastHole: safeLastHole
     });
-  }, [soloName, soloScores, soloHolePars, currentHole]);
+  }, [playMode, soloName, soloScores, soloHolePars, currentHole]);
 
   useEffect(() => {
     if (playMode !== "group" || !snapshot) {
@@ -320,6 +405,14 @@ export default function App() {
       writeActiveGroupSession({ ...stored, code: snapshot.session.code });
     }
   }, [playMode, snapshot?.session.code, snapshot?.session.id]);
+
+  useEffect(() => {
+    if (playMode !== "group" || !snapshot) {
+      return;
+    }
+    const maxH = Math.max(1, snapshot.session.hole_pars.length);
+    setCurrentHole((c) => Math.max(1, Math.min(c, maxH)));
+  }, [playMode, snapshot?.session.hole_pars.length, snapshot?.session.id]);
 
   async function handleRejoinActiveGame() {
     const stored = readActiveGroupSession();
@@ -348,7 +441,7 @@ export default function App() {
       setCurrentHole(
         Math.min(
           Math.max(1, stored.lastHole),
-          HOLES[HOLES.length - 1].number
+          next.session.hole_pars.length
         )
       );
       setPlayMode("group");
@@ -464,14 +557,17 @@ export default function App() {
       return 0;
     }
 
-    return HOLES.reduce((sum, hole) => {
-      const strokes = getGroupStroke(player.id, hole.number);
+    const n = snapshot.session.hole_pars.length;
+    let sum = 0;
+    for (let holeNumber = 1; holeNumber <= n; holeNumber += 1) {
+      const strokes = getGroupStroke(player.id, holeNumber);
       if (strokes == null) {
-        return sum;
+        continue;
       }
-      const par = snapshot.session.hole_pars[hole.number - 1] ?? DEFAULT_PAR;
-      return sum + (strokes - par);
-    }, 0);
+      const par = snapshot.session.hole_pars[holeNumber - 1] ?? DEFAULT_PAR;
+      sum += strokes - par;
+    }
+    return sum;
   }
 
   function getActiveStroke(): number | null {
@@ -745,6 +841,120 @@ export default function App() {
     setPendingSoloReset(null);
   }
 
+  function requestGroupReset(action: SoloResetAction) {
+    if (!canEditGroupLayout) {
+      return;
+    }
+    setGroupMenuOpen(false);
+    setPendingGroupReset(action);
+    setGroupResetConfirmOpen(true);
+  }
+
+  async function executeGroupReset() {
+    if (!pendingGroupReset || !snapshot || !canEditGroupLayout) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const sessionId = snapshot.session.id;
+    try {
+      if (pendingGroupReset === "hole") {
+        await clearStrokesOnHoleForSession(sessionId, activeHole.number);
+        setGroupResetConfirmOpen(false);
+        setPendingGroupReset(null);
+        await refreshSnapshot(sessionId);
+        return;
+      }
+      if (pendingGroupReset === "scores") {
+        await clearAllScoresInGroupSession(sessionId);
+        setGroupResetConfirmOpen(false);
+        setPendingGroupReset(null);
+        await refreshSnapshot(sessionId);
+        return;
+      }
+      await resetGroupSessionRoundToFrontNine(sessionId);
+      setGroupResetConfirmOpen(false);
+      setPendingGroupReset(null);
+      setCurrentHole(1);
+      await refreshSnapshot(sessionId);
+    } catch (groupResetError) {
+      setError(
+        groupResetError instanceof Error ? groupResetError.message : "Unable to reset the group round."
+      );
+      await refreshSnapshot(sessionId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function expandGroupToBackNine() {
+    if (!snapshot || !canEditGroupLayout) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const sessionId = snapshot.session.id;
+    try {
+      await appendHolesToSession(
+        sessionId,
+        Array.from({ length: 9 }, () => DEFAULT_PAR)
+      );
+      await refreshSnapshot(sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to add holes.");
+      await refreshSnapshot(sessionId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addGroupSingleHole() {
+    if (!snapshot || !canEditGroupLayout) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const sessionId = snapshot.session.id;
+    try {
+      await appendHolesToSession(sessionId, [DEFAULT_PAR]);
+      await refreshSnapshot(sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to add a hole.");
+      await refreshSnapshot(sessionId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeGroupBackHole(holeNumber: number) {
+    if (!snapshot || !canEditGroupLayout) {
+      return;
+    }
+    if (holeNumber <= 9 || holeNumber > snapshot.session.hole_pars.length) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const sessionId = snapshot.session.id;
+    try {
+      await removeHoleFromGroupSession(sessionId, holeNumber);
+      const next = await getSessionSnapshot(sessionId);
+      setSnapshot(next);
+      const maxH = next.session.hole_pars.length;
+      setCurrentHole((c) => {
+        if (c > holeNumber) {
+          return c - 1;
+        }
+        return Math.max(1, Math.min(c, maxH));
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to remove a hole.");
+      await refreshSnapshot(sessionId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function renderScoreTable() {
     if (playMode === "solo") {
       const relative = soloHoles.reduce((sum, hole) => {
@@ -915,6 +1125,23 @@ export default function App() {
       return null;
     }
 
+    function relForHolesOnPlayer(player: PlayerRecord, holes: { number: number }[]) {
+      return holes.reduce((sum, h) => {
+        const s = getGroupStroke(player.id, h.number);
+        if (s == null) {
+          return sum;
+        }
+        return sum + (s - parForHole(h.number));
+      }, 0);
+    }
+
+    const frontHolesG = groupHoles.filter((h) => h.number <= 9);
+    const backHolesG = groupHoles.filter((h) => h.number > 9);
+    const backSummaryLabelG =
+      backHolesG.length > 0 ? (backHolesG.length <= 9 ? "Back 9" : `Back ${backHolesG.length}`) : "";
+    const frontParTotalG = frontHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
+    const backParTotalG = backHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
+
     return (
       <div className="score-table-wrap">
         <table className="score-table">
@@ -928,9 +1155,14 @@ export default function App() {
             </tr>
           </thead>
           <tbody>
-            {HOLES.map((hole) => (
+            {frontHolesG.map((hole) => (
               <tr key={hole.number}>
-                <td>{hole.number}</td>
+                <td className="solo-hole-cell">
+                  <div className="hole-number-cell-content">
+                    <span className="hole-symbol-slot" aria-hidden="true" />
+                    <span className="hole-number-value">{hole.number}</span>
+                  </div>
+                </td>
                 <td
                   className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
                   onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
@@ -948,7 +1180,109 @@ export default function App() {
               </tr>
             ))}
             <tr className="totals-row">
-              <td>Front 9</td>
+              <td>
+                <div className="totals-label-wrap hole-number-cell-content">
+                  <span className="hole-symbol-slot">
+                    {canEditGroupLayout && (
+                      <button
+                        className="expand-holes-button"
+                        type="button"
+                        onClick={() => {
+                          void expandGroupToBackNine();
+                        }}
+                        aria-label="Add nine more holes"
+                      >
+                        +
+                      </button>
+                    )}
+                  </span>
+                  <span className="hole-number-value">Front 9</span>
+                </div>
+              </td>
+              <td>{frontParTotalG}</td>
+              {snapshot.players.map((player) => (
+                <td key={`front9-${player.id}`}>{formatRelative(relForHolesOnPlayer(player, frontHolesG))}</td>
+              ))}
+            </tr>
+            {backHolesG.map((hole) => (
+              <tr key={hole.number}>
+                <td
+                  className={
+                    hole.number > 9
+                      ? "solo-hole-cell solo-hole-cell--deletable"
+                      : "solo-hole-cell"
+                  }
+                >
+                  <div className="hole-number-cell-content">
+                    <span className="hole-symbol-slot">
+                      {hole.number > 9 && canEditGroupLayout && (
+                        <button
+                          className="solo-hole-delete"
+                          type="button"
+                          onClick={() => {
+                            void removeGroupBackHole(hole.number);
+                          }}
+                          aria-label={`Remove hole ${hole.number}`}
+                        >
+                          -
+                        </button>
+                      )}
+                    </span>
+                    <span className="hole-number-value">{hole.number}</span>
+                  </div>
+                </td>
+                <td
+                  className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
+                  onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
+                  onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
+                  onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
+                  onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                >
+                  {parForHole(hole.number)}
+                </td>
+                {snapshot.players.map((player) => (
+                  <td key={`${hole.number}-${player.id}`}>
+                    {getGroupStroke(player.id, hole.number) ?? "-"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {canEditGroupLayout && (
+              <tr className="hole-add-row">
+                <td className="solo-hole-cell">
+                  <div className="hole-number-cell-content">
+                    <span className="hole-symbol-slot">
+                      <button
+                        className="expand-holes-button"
+                        type="button"
+                        onClick={() => {
+                          void addGroupSingleHole();
+                        }}
+                        aria-label="Add one hole"
+                      >
+                        +
+                      </button>
+                    </span>
+                    <span className="hole-number-value">{snapshot.session.hole_pars.length + 1}</span>
+                  </div>
+                </td>
+                <td>-</td>
+                {snapshot.players.map((player) => (
+                  <td key={`add-${player.id}`}>-</td>
+                ))}
+              </tr>
+            )}
+            {backHolesG.length > 0 && (
+              <tr className="totals-row">
+                <td>{backSummaryLabelG}</td>
+                <td>{backParTotalG}</td>
+                {snapshot.players.map((player) => (
+                  <td key={`backtot-${player.id}`}>{formatRelative(relForHolesOnPlayer(player, backHolesG))}</td>
+                ))}
+              </tr>
+            )}
+            <tr className="totals-row">
+              <td>Total</td>
               <td>{totalParForTable}</td>
               {snapshot.players.map((player) => (
                 <td key={`total-${player.id}`}>{formatRelative(getPlayerRelative(player))}</td>
@@ -1160,9 +1494,14 @@ export default function App() {
               if (soloMenuOpen) {
                 setSoloMenuOpen(false);
               }
+              if (groupMenuOpen) {
+                setGroupMenuOpen(false);
+              }
             }}
           >
-            <header className="top-header">
+            <header
+              className={playMode === "group" ? "top-header top-header--group" : "top-header"}
+            >
               <button className="icon-text-button" onClick={returnToMenuFromPlay} type="button">
                 &larr;
               </button>
@@ -1196,9 +1535,58 @@ export default function App() {
                 </p>
               </div>
               {playMode === "group" && (
-                <button className="icon-text-button" onClick={() => setEndConfirmOpen(true)} type="button">
-                  End
-                </button>
+                <div className="header-right-cluster">
+                  {isSessionCreator && canEditGroupLayout && (
+                    <div className="header-menu-wrap">
+                      <button
+                        className="icon-text-button"
+                        type="button"
+                        aria-label="Group options"
+                        aria-expanded={groupMenuOpen}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setGroupMenuOpen((open) => !open);
+                        }}
+                      >
+                        ≡
+                      </button>
+                      {groupMenuOpen && (
+                        <div
+                          className="solo-menu"
+                          role="menu"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => requestGroupReset("hole")}
+                          >
+                            Reset current hole
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => requestGroupReset("scores")}
+                          >
+                            Reset all scores
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => requestGroupReset("round")}
+                          >
+                            Reset round setup
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <button className="icon-text-button" onClick={() => setEndConfirmOpen(true)} type="button">
+                    End
+                  </button>
+                </div>
               )}
               {playMode === "solo" && (
                 <div className="header-menu-wrap">
@@ -1296,11 +1684,9 @@ export default function App() {
                 </button>
                 <button
                   className="primary-button"
-                  disabled={currentHole === (playMode === "solo" ? soloHoles.length : HOLES.length)}
+                  disabled={currentHole === playHoleCount}
                   onClick={() =>
-                    setCurrentHole((current) =>
-                      Math.min(playMode === "solo" ? soloHoles.length : HOLES.length, current + 1)
-                    )
+                    setCurrentHole((current) => Math.min(playHoleCount, current + 1))
                   }
                 >
                   Next Hole
@@ -1358,6 +1744,62 @@ export default function App() {
                   onClick={() => void executeEndGame()}
                 >
                   Yes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {groupResetConfirmOpen && view === "play" && playMode === "group" && pendingGroupReset && (
+          <div
+            className="end-dialog"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => {
+              setGroupResetConfirmOpen(false);
+              setPendingGroupReset(null);
+            }}
+          >
+            <div
+              className="end-dialog-card"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <h3>
+                {pendingGroupReset === "hole"
+                  ? `Reset hole ${activeHole.number} for all players?`
+                  : pendingGroupReset === "scores"
+                    ? "Reset all players’ scores?"
+                    : "Reset round setup for the session?"}
+              </h3>
+              <p>
+                {pendingGroupReset === "hole"
+                  ? "This clears every player’s score on the current hole."
+                  : pendingGroupReset === "scores"
+                    ? "This clears all entered scores for every player, but keeps the hole layout and pars."
+                    : "This removes all scores, resets the layout to 9 front holes, and default pars, for all players in this session."}
+              </p>
+              <div className="end-dialog-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setGroupResetConfirmOpen(false);
+                    setPendingGroupReset(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    void executeGroupReset();
+                  }}
+                >
+                  Reset
                 </button>
               </div>
             </div>
