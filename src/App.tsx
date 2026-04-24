@@ -36,6 +36,7 @@ import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
 
 type View = "splash" | "group-menu" | "join-session" | "new-session" | "claim-name" | "play";
 type PlayMode = "solo" | "group" | null;
+type SoloResetAction = "hole" | "scores" | "round";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -86,14 +87,11 @@ export default function App() {
   const [parDialogOpen, setParDialogOpen] = useState(false);
   const [parEditHole, setParEditHole] = useState<number | null>(null);
   const [parDraft, setParDraft] = useState(String(DEFAULT_PAR));
-  const [swipeOpenHole, setSwipeOpenHole] = useState<number | null>(null);
-  const [swipeOffset, setSwipeOffset] = useState(0);
-  const [swipeDraggingHole, setSwipeDraggingHole] = useState<number | null>(null);
+  const [soloMenuOpen, setSoloMenuOpen] = useState(false);
+  const [soloResetConfirmOpen, setSoloResetConfirmOpen] = useState(false);
+  const [pendingSoloReset, setPendingSoloReset] = useState<SoloResetAction | null>(null);
 
   const parLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rowTouchStartX = useRef<number | null>(null);
-  const rowTouchStartY = useRef<number | null>(null);
-  const rowTouchStartOffset = useRef(0);
 
   const soloHoles = useMemo(
     () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
@@ -183,6 +181,9 @@ export default function App() {
     setCurrentHole(1);
     setError(null);
     setEndConfirmOpen(false);
+    setSoloMenuOpen(false);
+    setSoloResetConfirmOpen(false);
+    setPendingSoloReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -199,6 +200,9 @@ export default function App() {
     setCurrentHole(1);
     setError(null);
     setEndConfirmOpen(false);
+    setSoloMenuOpen(false);
+    setSoloResetConfirmOpen(false);
+    setPendingSoloReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -213,6 +217,9 @@ export default function App() {
     setActivePlayerId(null);
     setError(null);
     setEndConfirmOpen(false);
+    setSoloMenuOpen(false);
+    setSoloResetConfirmOpen(false);
+    setPendingSoloReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
     clearParLongPress();
@@ -551,13 +558,12 @@ export default function App() {
 
   function expandSoloToBackNine() {
     setSoloHolePars((current) => {
-      if (current.length >= 18) {
-        return current;
-      }
-      return [...current, ...Array.from({ length: 18 - current.length }, () => DEFAULT_PAR)];
+      return [...current, ...Array.from({ length: 9 }, () => DEFAULT_PAR)];
     });
-    setSwipeOpenHole(null);
-    setSwipeOffset(0);
+  }
+
+  function addSoloHole() {
+    setSoloHolePars((current) => [...current, DEFAULT_PAR]);
   }
 
   function deleteSoloHole(holeNumber: number) {
@@ -587,65 +593,6 @@ export default function App() {
       }
       return current;
     });
-    setSwipeOpenHole(null);
-    setSwipeOffset(0);
-  }
-
-  function handleSoloRowTouchStart(holeNumber: number, clientX: number, clientY: number) {
-    if (holeNumber <= 9) {
-      rowTouchStartX.current = null;
-      rowTouchStartY.current = null;
-      return;
-    }
-    if (swipeOpenHole && swipeOpenHole !== holeNumber) {
-      setSwipeOpenHole(null);
-      setSwipeOffset(0);
-    }
-    rowTouchStartX.current = clientX;
-    rowTouchStartY.current = clientY;
-    rowTouchStartOffset.current = swipeOpenHole === holeNumber ? swipeOffset : 0;
-  }
-
-  function handleSoloRowTouchMove(
-    holeNumber: number,
-    clientX: number,
-    clientY: number,
-    event: { preventDefault: () => void }
-  ) {
-    if (holeNumber <= 9 || rowTouchStartX.current == null || rowTouchStartY.current == null) {
-      return;
-    }
-    const deltaX = clientX - rowTouchStartX.current;
-    const deltaY = clientY - rowTouchStartY.current;
-    if (Math.abs(deltaX) < Math.abs(deltaY)) {
-      return;
-    }
-
-    event.preventDefault();
-    setSwipeDraggingHole(holeNumber);
-    const nextOffset = Math.max(-88, Math.min(0, rowTouchStartOffset.current + deltaX));
-    setSwipeOpenHole(holeNumber);
-    setSwipeOffset(nextOffset);
-  }
-
-  function handleSoloRowTouchEnd(holeNumber: number) {
-    if (holeNumber <= 9 || rowTouchStartX.current == null) {
-      return;
-    }
-    rowTouchStartX.current = null;
-    rowTouchStartY.current = null;
-    setSwipeDraggingHole(null);
-
-    if (swipeOpenHole !== holeNumber) {
-      return;
-    }
-    if (swipeOffset <= -44) {
-      setSwipeOpenHole(holeNumber);
-      setSwipeOffset(-88);
-      return;
-    }
-    setSwipeOpenHole(null);
-    setSwipeOffset(0);
   }
 
   async function handleCreateSession() {
@@ -769,6 +716,35 @@ export default function App() {
     }
   }
 
+  function requestSoloReset(action: SoloResetAction) {
+    setSoloMenuOpen(false);
+    setPendingSoloReset(action);
+    setSoloResetConfirmOpen(true);
+  }
+
+  function executeSoloReset() {
+    if (!pendingSoloReset) {
+      return;
+    }
+
+    if (pendingSoloReset === "hole") {
+      setSoloScores((current) => {
+        const next = { ...current };
+        delete next[activeHole.number];
+        return next;
+      });
+    } else if (pendingSoloReset === "scores") {
+      setSoloScores({});
+    } else if (pendingSoloReset === "round") {
+      setSoloScores({});
+      setSoloHolePars(defaultHolePars());
+      setCurrentHole(1);
+    }
+
+    setSoloResetConfirmOpen(false);
+    setPendingSoloReset(null);
+  }
+
   function renderScoreTable() {
     if (playMode === "solo") {
       const relative = soloHoles.reduce((sum, hole) => {
@@ -805,6 +781,7 @@ export default function App() {
         (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
         0
       );
+      const backSummaryLabel = backHoles.length <= 9 ? "Back 9" : `Back ${backHoles.length}`;
 
       return (
         <div className="score-table-wrap">
@@ -819,57 +796,21 @@ export default function App() {
                       className="solo-name-header-input"
                       value={soloName}
                       onChange={(event) => setSoloName(event.target.value)}
-                      placeholder="Name"
+                      placeholder="Enter Name"
                       aria-label="Solo player name"
                     />
-                    {!soloName.trim() && <span className="solo-name-cursor" aria-hidden="true">|</span>}
                   </label>
                 </th>
               </tr>
             </thead>
             <tbody>
               {frontHoles.map((hole) => (
-                <tr
-                  key={hole.number}
-                  className={swipeOpenHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
-                  style={
-                    swipeOpenHole === hole.number
-                      ? {
-                          transform: `translateX(${swipeOffset}px)`,
-                          transition:
-                            swipeDraggingHole === hole.number ? "none" : "transform 180ms ease-out"
-                        }
-                      : undefined
-                  }
-                  onTouchStart={(event) =>
-                    handleSoloRowTouchStart(
-                      hole.number,
-                      event.touches[0]?.clientX ?? 0,
-                      event.touches[0]?.clientY ?? 0
-                    )
-                  }
-                  onTouchMove={(event) =>
-                    handleSoloRowTouchMove(
-                      hole.number,
-                      event.touches[0]?.clientX ?? 0,
-                      event.touches[0]?.clientY ?? 0,
-                      event
-                    )
-                  }
-                  onTouchEnd={() => handleSoloRowTouchEnd(hole.number)}
-                >
+                <tr key={hole.number}>
                   <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
-                    <span>{hole.number}</span>
-                    {hole.number > 9 && swipeOpenHole === hole.number && swipeOffset <= -44 && (
-                      <button
-                        className="solo-hole-delete"
-                        type="button"
-                        onClick={() => deleteSoloHole(hole.number)}
-                        aria-label={`Remove hole ${hole.number}`}
-                      >
-                        Delete
-                      </button>
-                    )}
+                    <div className="hole-number-cell-content">
+                      <span className="hole-symbol-slot" aria-hidden="true" />
+                      <span className="hole-number-value">{hole.number}</span>
+                    </div>
                   </td>
                   <td
                     className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
@@ -885,65 +826,41 @@ export default function App() {
               ))}
               <tr className="totals-row">
                 <td>
-                  <div className="totals-label-wrap">
-                    {soloHolePars.length < 18 && (
+                  <div className="totals-label-wrap hole-number-cell-content">
+                    <span className="hole-symbol-slot">
                       <button
                         className="expand-holes-button"
                         type="button"
                         onClick={expandSoloToBackNine}
-                        aria-label="Expand to 18 holes"
+                        aria-label="Add nine more holes"
                       >
                         +
                       </button>
-                    )}
-                    <span>Front 9</span>
+                    </span>
+                    <span className="hole-number-value">Front 9</span>
                   </div>
                 </td>
                 <td>{frontParTotal}</td>
                 <td>{formatRelative(frontRelative)}</td>
               </tr>
               {backHoles.map((hole) => (
-                <tr
-                  key={hole.number}
-                  className={swipeOpenHole === hole.number ? "solo-row solo-row--swiped" : "solo-row"}
-                  style={
-                    swipeOpenHole === hole.number
-                      ? {
-                          transform: `translateX(${swipeOffset}px)`,
-                          transition:
-                            swipeDraggingHole === hole.number ? "none" : "transform 180ms ease-out"
-                        }
-                      : undefined
-                  }
-                  onTouchStart={(event) =>
-                    handleSoloRowTouchStart(
-                      hole.number,
-                      event.touches[0]?.clientX ?? 0,
-                      event.touches[0]?.clientY ?? 0
-                    )
-                  }
-                  onTouchMove={(event) =>
-                    handleSoloRowTouchMove(
-                      hole.number,
-                      event.touches[0]?.clientX ?? 0,
-                      event.touches[0]?.clientY ?? 0,
-                      event
-                    )
-                  }
-                  onTouchEnd={() => handleSoloRowTouchEnd(hole.number)}
-                >
+                <tr key={hole.number}>
                   <td className={hole.number > 9 ? "solo-hole-cell solo-hole-cell--deletable" : "solo-hole-cell"}>
-                    <span>{hole.number}</span>
-                    {hole.number > 9 && swipeOpenHole === hole.number && swipeOffset <= -44 && (
-                      <button
-                        className="solo-hole-delete"
-                        type="button"
-                        onClick={() => deleteSoloHole(hole.number)}
-                        aria-label={`Remove hole ${hole.number}`}
-                      >
-                        Delete
-                      </button>
-                    )}
+                    <div className="hole-number-cell-content">
+                      <span className="hole-symbol-slot">
+                        {hole.number > 9 && (
+                          <button
+                            className="solo-hole-delete"
+                            type="button"
+                            onClick={() => deleteSoloHole(hole.number)}
+                            aria-label={`Remove hole ${hole.number}`}
+                          >
+                            -
+                          </button>
+                        )}
+                      </span>
+                      <span className="hole-number-value">{hole.number}</span>
+                    </div>
                   </td>
                   <td
                     className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
@@ -957,9 +874,28 @@ export default function App() {
                   <td>{soloScores[hole.number] ?? "-"}</td>
                 </tr>
               ))}
+              <tr className="hole-add-row">
+                <td className="solo-hole-cell">
+                  <div className="hole-number-cell-content">
+                    <span className="hole-symbol-slot">
+                      <button
+                        className="expand-holes-button"
+                        type="button"
+                        onClick={addSoloHole}
+                        aria-label="Add one hole"
+                      >
+                        +
+                      </button>
+                    </span>
+                    <span className="hole-number-value">{soloHolePars.length + 1}</span>
+                  </div>
+                </td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
               {backHoles.length > 0 && (
                 <tr className="totals-row">
-                  <td>Back 9</td>
+                  <td>{backSummaryLabel}</td>
                   <td>{backParTotal}</td>
                   <td>{formatRelative(backRelative)}</td>
                 </tr>
@@ -1218,7 +1154,14 @@ export default function App() {
         )}
 
         {view === "play" && (
-          <div className="screen play-screen">
+          <div
+            className="screen play-screen"
+            onClick={() => {
+              if (soloMenuOpen) {
+                setSoloMenuOpen(false);
+              }
+            }}
+          >
             <header className="top-header">
               <button className="icon-text-button" onClick={returnToMenuFromPlay} type="button">
                 &larr;
@@ -1256,6 +1199,41 @@ export default function App() {
                 <button className="icon-text-button" onClick={() => setEndConfirmOpen(true)} type="button">
                   End
                 </button>
+              )}
+              {playMode === "solo" && (
+                <div className="header-menu-wrap">
+                  <button
+                    className="icon-text-button"
+                    type="button"
+                    aria-label="Solo options"
+                    aria-expanded={soloMenuOpen}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSoloMenuOpen((open) => !open);
+                    }}
+                  >
+                    ≡
+                  </button>
+                  {soloMenuOpen && (
+                    <div
+                      className="solo-menu"
+                      role="menu"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      <button type="button" role="menuitem" onClick={() => requestSoloReset("hole")}>
+                        Reset current hole
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => requestSoloReset("scores")}>
+                        Reset all scores
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => requestSoloReset("round")}>
+                        Reset round setup
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </header>
 
@@ -1380,6 +1358,55 @@ export default function App() {
                   onClick={() => void executeEndGame()}
                 >
                   Yes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {soloResetConfirmOpen && view === "play" && pendingSoloReset && (
+          <div
+            className="end-dialog"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => {
+              setSoloResetConfirmOpen(false);
+              setPendingSoloReset(null);
+            }}
+          >
+            <div
+              className="end-dialog-card"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <h3>
+                {pendingSoloReset === "hole"
+                  ? `Reset hole ${activeHole.number}?`
+                  : pendingSoloReset === "scores"
+                    ? "Reset all scores?"
+                    : "Reset round setup?"}
+              </h3>
+              <p>
+                {pendingSoloReset === "hole"
+                  ? "This clears the entered score for the current hole."
+                  : pendingSoloReset === "scores"
+                    ? "This clears all entered scores but keeps your hole layout and pars."
+                    : "This resets scores, hole count, and pars back to the default 9-hole setup."}
+              </p>
+              <div className="end-dialog-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setSoloResetConfirmOpen(false);
+                    setPendingSoloReset(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button className="primary-button" type="button" onClick={executeSoloReset}>
+                  Reset
                 </button>
               </div>
             </div>
