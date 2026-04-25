@@ -40,6 +40,8 @@ import type { PlayerRecord } from "./types";
 import flagImg from "../img/flag.png";
 import headerImg from "../img/header.png";
 import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
+import soloModeImg from "../img/solo.png";
+import groupModeImg from "../img/group.png";
 
 type View = "splash" | "group-menu" | "join-session" | "new-session" | "claim-name" | "play";
 type PlayMode = "solo" | "group" | null;
@@ -1308,16 +1310,8 @@ export default function App() {
                 all players to see.
               </p>
               <div className="splash-actions">
-                <button className="secondary-button" onClick={() => setView("group-menu")}>
-                  <span className="button-icon button-icon--group" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span className="button-label">Play With Group</span>
-                </button>
                 <button
-                  className="primary-button"
+                  className="splash-mode-button"
                   onClick={() => {
                     setPlayMode("solo");
                     const maxHole = Math.max(1, soloHolePars.length);
@@ -1325,8 +1319,27 @@ export default function App() {
                     setView("play");
                   }}
                 >
-                  <span className="button-icon button-icon--solo" aria-hidden="true" />
-                  <span className="button-label">Play Solo</span>
+                  <img
+                    src={soloModeImg}
+                    alt="Play solo"
+                    className="splash-mode-image"
+                  />
+                  <span className="splash-mode-subtext">Play on your own and track your round.</span>
+                </button>
+                <button
+                  className="splash-mode-button"
+                  onClick={() => {
+                    setView("group-menu");
+                  }}
+                >
+                  <img
+                    src={groupModeImg}
+                    alt="Play with group"
+                    className="splash-mode-image"
+                  />
+                  <span className="splash-mode-subtext">
+                    Start or join a shared session with live score updates.
+                  </span>
                 </button>
                 {rejoinable && (
                   <div className="rejoin-block">
