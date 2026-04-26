@@ -83,6 +83,13 @@ input {
   color: #1d2a1e;
 }
 
+.brand-logo {
+  width: min(100%, 290px);
+  margin-top: 1.2rem;
+  display: block;
+  object-fit: contain;
+}
+
 .rejoin-block {
   margin-top: 8px;
   display: flex;

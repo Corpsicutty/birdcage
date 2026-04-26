@@ -1,3 +1,5 @@
+import { createUuid } from "./id";
+
 const PLAYER_TOKEN_KEY = "birdcage-player-token";
 const ACTIVE_GROUP_KEY = "birdcage-active-group";
 const SOLO_SESSION_KEY = "birdcage-solo-session";
@@ -8,7 +10,7 @@ export function getOrCreatePlayerToken(): string {
     return existing;
   }
 
-  const token = crypto.randomUUID();
+  const token = createUuid();
   window.localStorage.setItem(PLAYER_TOKEN_KEY, token);
   return token;
 }

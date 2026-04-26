@@ -35,11 +35,13 @@ import {
   writeActiveGroupSession,
   writeSoloSession
 } from "./lib/storage";
+import { createUuid } from "./lib/id";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import type { PlayerRecord } from "./types";
 import flagImg from "../img/flag.png";
 import headerImg from "../img/header.png";
 import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
+import brandLogoImg from "../img/Birdcage-Logo-Smaller.png";
 import soloModeImg from "../img/solo.png";
 import groupModeImg from "../img/group.png";
 
@@ -603,7 +605,7 @@ export default function App() {
           scores: [
             ...current.scores,
             {
-              id: crypto.randomUUID(),
+              id: createUuid(),
               session_id: sessionId,
               player_id: playerId,
               hole_number: holeNumber,
@@ -1303,7 +1305,7 @@ export default function App() {
           <div className="screen splash-screen">
             <img src={headerImg} alt="" className="header-img" />
             <div className="card splash-card">
-              <h1 className="brand-title">Birdcage</h1>
+              <img src={brandLogoImg} alt="Birdcage" className="brand-logo" />
               <p className="splash-subtitle">
                 <strong>Join an existing game session or generate a new one.</strong> Your friends will be able
                 to join the session and keep their own score while they play. All the scores will update live for
