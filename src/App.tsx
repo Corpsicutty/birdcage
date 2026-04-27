@@ -37,7 +37,7 @@ import {
 } from "./lib/storage";
 import { createUuid } from "./lib/id";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
-import type { PlayerRecord } from "./types";
+import type { PlayerRecord, ScoreRecord } from "./types";
 import flagImg from "../img/flag.png";
 import headerImg from "../img/arched-header.png";
 import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
@@ -113,6 +113,29 @@ function buildInitialSoloState(): SoloInitState {
   };
 }
 
+/** Local mirror of server state after removing a back hole (must match `removeHoleFromGroupSession`). */
+function snapshotAfterRemovingGroupHole(
+  current: SessionSnapshot,
+  holeNumber: number
+): SessionSnapshot {
+  if (holeNumber <= 9 || holeNumber > current.session.hole_pars.length) {
+    return current;
+  }
+  const newPars = current.session.hole_pars.filter((_, i) => i !== holeNumber - 1);
+  const scores: ScoreRecord[] = current.scores
+    .filter((s) => s.hole_number !== holeNumber)
+    .map((s) =>
+      s.hole_number > holeNumber
+        ? { ...s, hole_number: s.hole_number - 1 }
+        : s
+    );
+  return {
+    ...current,
+    session: { ...current.session, hole_pars: newPars },
+    scores
+  };
+}
+
 export default function App() {
   const soloInit = useMemo(() => buildInitialSoloState(), []);
   const playerToken = useMemo(() => getOrCreatePlayerToken(), []);
@@ -146,7 +169,7 @@ export default function App() {
   const [groupResetConfirmOpen, setGroupResetConfirmOpen] = useState(false);
   const [pendingGroupReset, setPendingGroupReset] = useState<SoloResetAction | null>(null);
 
-  const parLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressGroupSessionRealtimeRef = useRef(false);
 
   const soloHoles = useMemo(
     () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
@@ -217,24 +240,6 @@ export default function App() {
     return 0;
   }, [playMode, soloHolePars, snapshot?.session.hole_pars]);
 
-  function clearParLongPress() {
-    if (parLongPressTimer.current) {
-      clearTimeout(parLongPressTimer.current);
-    }
-    parLongPressTimer.current = null;
-  }
-
-  function startParLongPress(holeNumber: number) {
-    if (!canEditPar) {
-      return;
-    }
-    clearParLongPress();
-    parLongPressTimer.current = setTimeout(() => {
-      parLongPressTimer.current = null;
-      openParDialog(holeNumber);
-    }, 550);
-  }
-
   function openParDialog(holeNumber: number) {
     if (playMode === "solo") {
       // allow
@@ -243,7 +248,6 @@ export default function App() {
     } else {
       return;
     }
-    clearParLongPress();
     setParEditHole(holeNumber);
     setParDraft(String(parForHole(holeNumber)));
     setParDialogOpen(true);
@@ -266,7 +270,6 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
-    clearParLongPress();
     clearActiveGroupSession();
     setRejoinable(null);
   }
@@ -288,7 +291,6 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
-    clearParLongPress();
     setJoinCode("");
   }
 
@@ -308,7 +310,6 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
-    clearParLongPress();
 
     const stored = readActiveGroupSession();
     if (stored) {
@@ -521,6 +522,9 @@ export default function App() {
         "postgres_changes",
         { event: "*", schema: "public", table: "scores", filter: `session_id=eq.${sessionId}` },
         () => {
+          if (suppressGroupSessionRealtimeRef.current) {
+            return;
+          }
           void refreshSnapshot(sessionId);
         }
       )
@@ -528,6 +532,9 @@ export default function App() {
         "postgres_changes",
         { event: "*", schema: "public", table: "players", filter: `session_id=eq.${sessionId}` },
         () => {
+          if (suppressGroupSessionRealtimeRef.current) {
+            return;
+          }
           void refreshSnapshot(sessionId);
         }
       )
@@ -535,6 +542,9 @@ export default function App() {
         "postgres_changes",
         { event: "*", schema: "public", table: "sessions", filter: `id=eq.${sessionId}` },
         () => {
+          if (suppressGroupSessionRealtimeRef.current) {
+            return;
+          }
           void refreshSnapshot(sessionId);
         }
       )
@@ -937,25 +947,25 @@ export default function App() {
     if (holeNumber <= 9 || holeNumber > snapshot.session.hole_pars.length) {
       return;
     }
-    setLoading(true);
-    setError(null);
     const sessionId = snapshot.session.id;
+    const afterLen = snapshot.session.hole_pars.length - 1;
+    setError(null);
+    suppressGroupSessionRealtimeRef.current = true;
+    setSnapshot((s) => (s ? snapshotAfterRemovingGroupHole(s, holeNumber) : s));
+    setCurrentHole((c) => {
+      if (c > holeNumber) {
+        return c - 1;
+      }
+      return Math.max(1, Math.min(c, afterLen));
+    });
     try {
       await removeHoleFromGroupSession(sessionId, holeNumber);
-      const next = await getSessionSnapshot(sessionId);
-      setSnapshot(next);
-      const maxH = next.session.hole_pars.length;
-      setCurrentHole((c) => {
-        if (c > holeNumber) {
-          return c - 1;
-        }
-        return Math.max(1, Math.min(c, maxH));
-      });
+      await refreshSnapshot(sessionId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to remove a hole.");
       await refreshSnapshot(sessionId);
     } finally {
-      setLoading(false);
+      suppressGroupSessionRealtimeRef.current = false;
     }
   }
 
@@ -1028,10 +1038,7 @@ export default function App() {
                   </td>
                   <td
                     className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
-                    onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
-                    onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
-                    onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
-                    onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                    onClick={canEditPar ? () => openParDialog(hole.number) : undefined}
                   >
                     {parForHole(hole.number)}
                   </td>
@@ -1078,10 +1085,7 @@ export default function App() {
                   </td>
                   <td
                     className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
-                    onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
-                    onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
-                    onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
-                    onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                    onClick={canEditPar ? () => openParDialog(hole.number) : undefined}
                   >
                     {parForHole(hole.number)}
                   </td>
@@ -1169,10 +1173,7 @@ export default function App() {
                 </td>
                 <td
                   className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
-                  onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
-                  onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
-                  onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
-                  onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                  onClick={canEditPar ? () => openParDialog(hole.number) : undefined}
                 >
                   {parForHole(hole.number)}
                 </td>
@@ -1237,10 +1238,7 @@ export default function App() {
                 </td>
                 <td
                   className={canEditPar ? "par-cell par-cell--editable" : "par-cell"}
-                  onPointerDown={canEditPar ? () => startParLongPress(hole.number) : undefined}
-                  onPointerUp={canEditPar ? () => clearParLongPress() : undefined}
-                  onPointerCancel={canEditPar ? () => clearParLongPress() : undefined}
-                  onPointerLeave={canEditPar ? () => clearParLongPress() : undefined}
+                  onClick={canEditPar ? () => openParDialog(hole.number) : undefined}
                 >
                   {parForHole(hole.number)}
                 </td>
@@ -1526,26 +1524,13 @@ export default function App() {
                 <h2>Hole {activeHole.number}</h2>
                 <p className="hole-meta">
                   {canEditPar ? (
-                    <span
+                    <button
+                      type="button"
                       className="par-tap"
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                      }}
-                      onPointerDown={() => {
-                        startParLongPress(currentHole);
-                      }}
-                      onPointerUp={() => {
-                        clearParLongPress();
-                      }}
-                      onPointerCancel={() => {
-                        clearParLongPress();
-                      }}
-                      onPointerLeave={() => {
-                        clearParLongPress();
-                      }}
+                      onClick={() => openParDialog(currentHole)}
                     >
                       Par {activePar}
-                    </span>
+                    </button>
                   ) : (
                     <span>Par {activePar}</span>
                   )}
@@ -1892,7 +1877,7 @@ export default function App() {
             >
               <h3 id="par-dialog-title">Par for hole {parEditHole}</h3>
               <p className="par-dialog-hint">
-                {PAR_MIN}–{PAR_MAX} (long-press par on the course to edit)
+                {PAR_MIN}–{PAR_MAX} (tap a par in the table or above to edit)
               </p>
               <label className="field-label" htmlFor="par-input">
                 Par

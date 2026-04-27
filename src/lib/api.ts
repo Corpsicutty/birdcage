@@ -343,22 +343,14 @@ export async function removeHoleFromGroupSession(sessionId: string, holeNumber: 
     throw new Error(dErr.message);
   }
 
-  const { data: shiftRows, error: shErr } = await client
-    .from("scores")
-    .select("id, hole_number")
-    .eq("session_id", sessionId)
-    .gt("hole_number", holeNumber)
-    // Ascending: move lower holes first (N+1 -> N) so we never target a slot still
-    // occupied; descending caused unique (player_id, hole_number) violations.
-    .order("hole_number", { ascending: true });
-  if (shErr) {
-    throw new Error(shErr.message);
-  }
-  for (const row of shiftRows ?? []) {
+  // One update per shifted hole, all players in one request each (not one row at a time).
+  const maxHole = snap.session.hole_pars.length;
+  for (let h = holeNumber + 1; h <= maxHole; h += 1) {
     const { error: uErr } = await client
       .from("scores")
-      .update({ hole_number: row.hole_number - 1 })
-      .eq("id", row.id);
+      .update({ hole_number: h - 1 })
+      .eq("session_id", sessionId)
+      .eq("hole_number", h);
     if (uErr) {
       throw new Error(uErr.message);
     }
