@@ -348,7 +348,9 @@ export async function removeHoleFromGroupSession(sessionId: string, holeNumber: 
     .select("id, hole_number")
     .eq("session_id", sessionId)
     .gt("hole_number", holeNumber)
-    .order("hole_number", { ascending: false });
+    // Ascending: move lower holes first (N+1 -> N) so we never target a slot still
+    // occupied; descending caused unique (player_id, hole_number) violations.
+    .order("hole_number", { ascending: true });
   if (shErr) {
     throw new Error(shErr.message);
   }
