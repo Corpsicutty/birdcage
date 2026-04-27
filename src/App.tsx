@@ -136,6 +136,103 @@ function snapshotAfterRemovingGroupHole(
   };
 }
 
+function PlayHelpDialogContent({ playMode }: { playMode: "solo" | "group" }) {
+  return (
+    <div className="play-help-body">
+      {playMode === "solo" ? (
+        <>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Scoring</h3>
+            <p>
+              Use the <strong>−</strong> and <strong>+</strong> buttons under the flag to add or remove
+              strokes for the <strong>current hole</strong> (scores stay between 1 and 20). The large number
+              is your score for that hole.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Move between holes</h3>
+            <p>
+              Use <strong>Previous hole</strong> and <strong>Next hole</strong>, or scroll the scorecard
+              to jump around the round.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Par</h3>
+            <p>
+              Tap <strong>Par</strong> in the header, or tap any <strong>par</strong> cell in the
+              scorecard, to set par for that hole (valid range is shown in the editor).
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Add or remove holes</h3>
+            <p>
+              On the <strong>Front 9</strong> total row, tap <strong>+</strong> to add nine more holes
+              (back nine). At the bottom of the list, use <strong>+</strong> on the &quot;next hole&quot;
+              row to add a single hole. For holes <strong>10 and up</strong>, use <strong>−</strong> next
+              to the hole number to remove that hole and its scores.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Menu (≡)</h3>
+            <p>
+              Open the <strong>≡</strong> menu to reset the <strong>current hole</strong>, clear{" "}
+              <strong>all scores</strong>, or reset the <strong>full round</strong> (back to a 9-hole
+              layout and default pars).
+            </p>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Session admin</h3>
+            <p>
+              The person who <strong>created the session</strong> (the <strong>first name</strong> in the
+              list when the host set up the game) is the <strong>admin</strong>. The admin can change{" "}
+              <strong>pars</strong>, <strong>add or remove holes</strong>, and use the <strong>group menu</strong>{" "}
+              (≡) for whole-session resets. Other players only change scores for the player they{" "}
+              <strong>claimed</strong> when they joined.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Joining and players</h3>
+            <p>
+              Share the <strong>session code</strong> from the play screen. New players choose{" "}
+              <strong>Join session</strong>, enter the code, then <strong>claim</strong> an open name or{" "}
+              <strong>add</strong> a new one. The host creates the session with at least two names; more
+              people can join at any time while the session is active.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Scoring</h3>
+            <p>
+              Tap a <strong>player chip</strong> to select who you are editing. You can only enter scores
+              for <strong>your</strong> claimed player. Use <strong>−</strong> and <strong>+</strong> to
+              change strokes for the <strong>current hole</strong>; everyone sees updates live.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Par and holes (admin)</h3>
+            <p>
+              The admin can tap <strong>Par</strong> in the header or any <strong>par</strong> in the table
+              to edit. Use <strong>+</strong> on the <strong>Front 9</strong> row for nine more holes, or the
+              bottom <strong>+</strong> row to add one hole. Use <strong>−</strong> on hole numbers 10+ to
+              remove a back hole. Non-admins see the same card but cannot edit layout or pars.
+            </p>
+          </section>
+          <section className="play-help-section">
+            <h3 className="play-help-heading">Group menu and End</h3>
+            <p>
+              <strong>≡</strong> (admin only): reset the <strong>current hole</strong> for all players,
+              clear <strong>all scores</strong>, or reset the <strong>round setup</strong> for everyone.{" "}
+              <strong>End</strong> ends the session for the whole group.
+            </p>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const soloInit = useMemo(() => buildInitialSoloState(), []);
   const playerToken = useMemo(() => getOrCreatePlayerToken(), []);
@@ -168,6 +265,8 @@ export default function App() {
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupResetConfirmOpen, setGroupResetConfirmOpen] = useState(false);
   const [pendingGroupReset, setPendingGroupReset] = useState<SoloResetAction | null>(null);
+  const [splashInfoOpen, setSplashInfoOpen] = useState(false);
+  const [playHelpOpen, setPlayHelpOpen] = useState(false);
 
   const suppressGroupSessionRealtimeRef = useRef(false);
 
@@ -270,6 +369,8 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
+    setSplashInfoOpen(false);
+    setPlayHelpOpen(false);
     clearActiveGroupSession();
     setRejoinable(null);
   }
@@ -291,6 +392,8 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
+    setSplashInfoOpen(false);
+    setPlayHelpOpen(false);
     setJoinCode("");
   }
 
@@ -310,6 +413,8 @@ export default function App() {
     setPendingGroupReset(null);
     setParDialogOpen(false);
     setParEditHole(null);
+    setSplashInfoOpen(false);
+    setPlayHelpOpen(false);
 
     const stored = readActiveGroupSession();
     if (stored) {
@@ -1353,12 +1458,36 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="splash-intro" aria-label="How Birdcage works">
-                <p className="splash-intro__text">
-                  <strong>Join an existing game session or generate a new one.</strong> Your friends will be
-                  able to join the session and keep their own score while they play. All the scores will
-                  update live for all players to see.
-                </p>
+              <div className="splash-info-block">
+                <button
+                  type="button"
+                  className="splash-info-toggle"
+                  onClick={() => setSplashInfoOpen((open) => !open)}
+                  aria-expanded={splashInfoOpen}
+                  aria-controls="splash-intro-panel"
+                  id="splash-info-button"
+                >
+                  <span className="splash-info-icon" aria-hidden="true">
+                    i
+                  </span>
+                  <span className="visually-hidden">
+                    {splashInfoOpen ? "Hide" : "Show"} how Birdcage works
+                  </span>
+                </button>
+                {splashInfoOpen && (
+                  <div
+                    className="splash-intro"
+                    id="splash-intro-panel"
+                    role="region"
+                    aria-labelledby="splash-info-button"
+                  >
+                    <p className="splash-intro__text">
+                      <strong>Join an existing game session or generate a new one.</strong> Your friends will
+                      be able to join the session and keep their own score while they play. All the scores
+                      will update live for all players to see.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="splash-support">
@@ -1512,10 +1641,15 @@ export default function App() {
               if (groupMenuOpen) {
                 setGroupMenuOpen(false);
               }
+              if (playHelpOpen) {
+                setPlayHelpOpen(false);
+              }
             }}
           >
             <header
-              className={playMode === "group" ? "top-header top-header--group" : "top-header"}
+              className={
+                view === "play" && playMode ? "top-header top-header--play-tools" : "top-header"
+              }
             >
               <button className="icon-text-button" onClick={returnToMenuFromPlay} type="button">
                 &larr;
@@ -1538,6 +1672,22 @@ export default function App() {
               </div>
               {playMode === "group" && (
                 <div className="header-right-cluster">
+                  <button
+                    type="button"
+                    className="play-help-icon"
+                    aria-label="How to use Birdcage"
+                    aria-expanded={playHelpOpen}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSoloMenuOpen(false);
+                      setGroupMenuOpen(false);
+                      setPlayHelpOpen((open) => !open);
+                    }}
+                  >
+                    <span className="play-help-icon-glyph" aria-hidden="true">
+                      i
+                    </span>
+                  </button>
                   {isSessionCreator && canEditGroupLayout && (
                     <div className="header-menu-wrap">
                       <button
@@ -1591,20 +1741,37 @@ export default function App() {
                 </div>
               )}
               {playMode === "solo" && (
-                <div className="header-menu-wrap">
+                <div className="header-right-cluster">
                   <button
-                    className="icon-text-button"
                     type="button"
-                    aria-label="Solo options"
-                    aria-expanded={soloMenuOpen}
+                    className="play-help-icon"
+                    aria-label="How to use Birdcage"
+                    aria-expanded={playHelpOpen}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setSoloMenuOpen((open) => !open);
+                      setSoloMenuOpen(false);
+                      setGroupMenuOpen(false);
+                      setPlayHelpOpen((open) => !open);
                     }}
                   >
-                    ≡
+                    <span className="play-help-icon-glyph" aria-hidden="true">
+                      i
+                    </span>
                   </button>
-                  {soloMenuOpen && (
+                  <div className="header-menu-wrap">
+                    <button
+                      className="icon-text-button"
+                      type="button"
+                      aria-label="Solo options"
+                      aria-expanded={soloMenuOpen}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSoloMenuOpen((open) => !open);
+                      }}
+                    >
+                      ≡
+                    </button>
+                    {soloMenuOpen && (
                     <div
                       className="solo-menu"
                       role="menu"
@@ -1622,7 +1789,8 @@ export default function App() {
                         Reset round setup
                       </button>
                     </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
             </header>
@@ -1912,6 +2080,33 @@ export default function App() {
                   onClick={() => void saveParFromDialog()}
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {playHelpOpen && view === "play" && (playMode === "solo" || playMode === "group") && (
+          <div
+            className="end-dialog play-help-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="play-help-title"
+            onClick={() => {
+              setPlayHelpOpen(false);
+            }}
+          >
+            <div
+              className="end-dialog-card play-help-card"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <h3 id="play-help-title">How to use Birdcage</h3>
+              <PlayHelpDialogContent playMode={playMode} />
+              <div className="end-dialog-actions play-help-actions">
+                <button className="primary-button" type="button" onClick={() => setPlayHelpOpen(false)}>
+                  Done
                 </button>
               </div>
             </div>
