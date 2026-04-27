@@ -63,7 +63,7 @@ input {
 }
 
 .splash-card {
-  margin: 18px 16px 20px;
+  margin: -30px 16px 20px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -85,7 +85,7 @@ input {
 
 .brand-logo {
   width: min(100%, 290px);
-  margin-top: 1.2rem;
+  margin-top: 0;
   display: block;
   object-fit: contain;
 }
@@ -120,7 +120,6 @@ input {
   letter-spacing: 0.04em;
 }
 
-.splash-subtitle,
 .group-session-subtitle {
   max-width: 320px;
   margin: 0.75rem 0 0;
@@ -128,8 +127,65 @@ input {
   text-align: center;
 }
 
-.splash-subtitle strong,
 .group-session-subtitle strong {
+  font-weight: 700;
+  color: #1d2a1e;
+}
+
+.splash-intro {
+  width: 100%;
+  max-width: 20.5rem;
+  margin: 1.15rem 0 0;
+  padding: 0.85rem 0.9rem 0.95rem;
+  text-align: left;
+  border-radius: 14px;
+  border: 1px solid rgba(110, 131, 97, 0.22);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, rgba(241, 245, 236, 0.85) 100%);
+  box-shadow: 0 1px 0 rgba(29, 42, 30, 0.06);
+  position: relative;
+  overflow: hidden;
+  animation: splashIntroIn 0.5s ease-out both;
+}
+
+.splash-intro::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #6e8361, #8aa382);
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-intro {
+    animation: none;
+  }
+}
+
+@keyframes splashIntroIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.splash-intro__text {
+  margin: 0;
+  padding-left: 0.5rem;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.58;
+  color: #5a6b58;
+}
+
+.splash-intro__text strong {
   font-weight: 700;
   color: #1d2a1e;
 }
@@ -179,7 +235,7 @@ input {
 
 .splash-actions {
   width: 100%;
-  margin-top: 2.25rem;
+  margin-top: 1.5rem;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;

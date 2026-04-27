@@ -39,7 +39,7 @@ import { createUuid } from "./lib/id";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import type { PlayerRecord } from "./types";
 import flagImg from "../img/flag.png";
-import headerImg from "../img/header.png";
+import headerImg from "../img/arched-header.png";
 import buyMeCoffeeIcon from "../img/buy-me-coffee-icon.png";
 import brandLogoImg from "../img/Birdcage-Logo-Smaller.png";
 import soloModeImg from "../img/solo.png";
@@ -1306,11 +1306,6 @@ export default function App() {
             <img src={headerImg} alt="" className="header-img" />
             <div className="card splash-card">
               <img src={brandLogoImg} alt="Birdcage" className="brand-logo" />
-              <p className="splash-subtitle">
-                <strong>Join an existing game session or generate a new one.</strong> Your friends will be able
-                to join the session and keep their own score while they play. All the scores will update live for
-                all players to see.
-              </p>
               <div className="splash-actions">
                 <button
                   className="splash-mode-button"
@@ -1359,6 +1354,13 @@ export default function App() {
                     <p className="rejoin-code">Code {rejoinable.code}</p>
                   </div>
                 )}
+              </div>
+              <div className="splash-intro" aria-label="How Birdcage works">
+                <p className="splash-intro__text">
+                  <strong>Join an existing game session or generate a new one.</strong> Your friends will be
+                  able to join the session and keep their own score while they play. All the scores will
+                  update live for all players to see.
+                </p>
               </div>
             </div>
             <div className="splash-support">
