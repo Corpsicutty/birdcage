@@ -1077,7 +1077,7 @@ p {
 }
 
 .totals-row .totals-label-wrap.hole-number-cell-content {
-  margin-left: -1.5rem;
+  margin-left: -1.75rem;
   justify-content: flex-start;
   align-items: center;
   padding-left: 0;
@@ -1085,6 +1085,7 @@ p {
 
 .totals-row .totals-label-wrap .hole-number-value {
   position: relative;
+  left: -0.5rem;
   top: 1px;
   color: #1f3e5a;
   font-style: italic;
