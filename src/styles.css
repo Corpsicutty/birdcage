@@ -1077,15 +1077,17 @@ p {
 }
 
 .totals-row .totals-label-wrap.hole-number-cell-content {
-  margin-left: auto;
-  justify-content: end;
+  margin-left: -1.5rem;
+  justify-content: flex-start;
   align-items: center;
+  padding-left: 0;
 }
 
 .totals-row .totals-label-wrap .hole-number-value {
   position: relative;
   top: 1px;
   color: #1f3e5a;
+  font-style: italic;
 }
 
 .totals-row--grand-total td {
