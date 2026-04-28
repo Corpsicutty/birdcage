@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toBlob } from "html-to-image";
 import {
   DEFAULT_PAR,
   HOLE_COUNT,
@@ -49,11 +50,26 @@ type View = "splash" | "group-menu" | "join-session" | "new-session" | "claim-na
 type PlayMode = "solo" | "group" | null;
 type SoloResetAction = "hole" | "scores" | "round";
 type PendingGroupScoreMap = Record<string, number>;
+type ShareCellValue = string | number;
+type ShareRow =
+  | { type: "hole"; label: ShareCellValue; par: number; values: ShareCellValue[] }
+  | { type: "summary"; label: string; par: number; values: string[] };
 
 const SCORE_WRITE_DEBOUNCE_MS = 160;
 
 function scoreKey(playerId: string, holeNumber: number): string {
   return `${playerId}:${holeNumber}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function getInitials(name: string): string {
@@ -82,28 +98,39 @@ function formatChipName(name: string): string {
   return `${trimmed.slice(0, 6)}…`;
 }
 
+function scoreMotifClass(strokes: number | null, par: number): string | null {
+  if (strokes == null) {
+    return null;
+  }
+  const relative = strokes - par;
+  if (relative === -1) {
+    return "score-mark--birdie";
+  }
+  if (relative === -2) {
+    return "score-mark--eagle";
+  }
+  if (relative === -3) {
+    return "score-mark--albatross";
+  }
+  if (relative === 1) {
+    return "score-mark--bogey";
+  }
+  if (relative === 2) {
+    return "score-mark--double-bogey";
+  }
+  if (relative === 3) {
+    return "score-mark--triple-bogey";
+  }
+  return null;
+}
+
 function renderScoreWithMotif(strokes: number | null, par: number): string | number | JSX.Element {
   if (strokes == null) {
     return "-";
   }
-  const relative = strokes - par;
-  if (relative === -1) {
-    return <span className="score-mark score-mark--birdie">{strokes}</span>;
-  }
-  if (relative === -2) {
-    return <span className="score-mark score-mark--eagle">{strokes}</span>;
-  }
-  if (relative === -3) {
-    return <span className="score-mark score-mark--albatross">{strokes}</span>;
-  }
-  if (relative === 1) {
-    return <span className="score-mark score-mark--bogey">{strokes}</span>;
-  }
-  if (relative === 2) {
-    return <span className="score-mark score-mark--double-bogey">{strokes}</span>;
-  }
-  if (relative === 3) {
-    return <span className="score-mark score-mark--triple-bogey">{strokes}</span>;
+  const motif = scoreMotifClass(strokes, par);
+  if (motif) {
+    return <span className={`score-mark ${motif}`}>{strokes}</span>;
   }
   return strokes;
 }
@@ -306,14 +333,21 @@ export default function App() {
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupResetConfirmOpen, setGroupResetConfirmOpen] = useState(false);
   const [pendingGroupReset, setPendingGroupReset] = useState<SoloResetAction | null>(null);
+  const [courseName, setCourseName] = useState("");
+  const [courseNameEditing, setCourseNameEditing] = useState(true);
+  const [coursePromptOpen, setCoursePromptOpen] = useState(false);
+  const [coursePromptDraft, setCoursePromptDraft] = useState("");
   const [splashInfoOpen, setSplashInfoOpen] = useState(false);
   const [playHelpOpen, setPlayHelpOpen] = useState(false);
   const [pendingGroupScores, setPendingGroupScores] = useState<PendingGroupScoreMap>({});
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
 
   const suppressGroupSessionRealtimeRef = useRef(false);
   const pendingGroupScoresRef = useRef<PendingGroupScoreMap>({});
   const scoreWriteTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const scoreWriteSeqRef = useRef<Record<string, number>>({});
+  const shareCardRef = useRef<HTMLDivElement | null>(null);
 
   const soloHoles = useMemo(
     () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
@@ -481,10 +515,15 @@ export default function App() {
     setGroupMenuOpen(false);
     setGroupResetConfirmOpen(false);
     setPendingGroupReset(null);
+    setCourseName("");
+    setCourseNameEditing(true);
+    setCoursePromptOpen(false);
+    setCoursePromptDraft("");
     setParDialogOpen(false);
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    setShareModalOpen(false);
     clearAllPendingGroupScoreWrites();
     clearActiveGroupSession();
     setRejoinable(null);
@@ -505,10 +544,15 @@ export default function App() {
     setGroupMenuOpen(false);
     setGroupResetConfirmOpen(false);
     setPendingGroupReset(null);
+    setCourseName("");
+    setCourseNameEditing(true);
+    setCoursePromptOpen(false);
+    setCoursePromptDraft("");
     setParDialogOpen(false);
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    setShareModalOpen(false);
     clearAllPendingGroupScoreWrites();
     setJoinCode("");
   }
@@ -527,10 +571,15 @@ export default function App() {
     setGroupMenuOpen(false);
     setGroupResetConfirmOpen(false);
     setPendingGroupReset(null);
+    setCourseName("");
+    setCourseNameEditing(true);
+    setCoursePromptOpen(false);
+    setCoursePromptDraft("");
     setParDialogOpen(false);
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    setShareModalOpen(false);
     clearAllPendingGroupScoreWrites();
 
     const stored = readActiveGroupSession();
@@ -832,6 +881,187 @@ export default function App() {
       return null;
     }
     return getGroupStroke(activePlayer.id, activeHole.number);
+  }
+
+  function getShareScore(playerId: string, holeNumber: number): number | null {
+    if (playMode === "solo") {
+      return soloScores[holeNumber] ?? null;
+    }
+    return getGroupStroke(playerId, holeNumber);
+  }
+
+  function shareRelativeForHoles(playerId: string, holes: number[], pars: number[]): string {
+    const relative = holes.reduce((sum, holeNumber) => {
+      const strokes = getShareScore(playerId, holeNumber);
+      if (strokes == null) {
+        return sum;
+      }
+      return sum + (strokes - (pars[holeNumber - 1] ?? DEFAULT_PAR));
+    }, 0);
+    return formatRelative(relative);
+  }
+
+  const shareModel = useMemo(() => {
+    if (view !== "play" || (playMode !== "solo" && playMode !== "group")) {
+      return null;
+    }
+    if (playMode === "group" && !snapshot) {
+      return null;
+    }
+
+    const playersForShare =
+      playMode === "solo"
+        ? [{ id: "solo", name: soloName.trim() || "Solo Player" }]
+        : (snapshot?.players ?? []).map((player) => ({ id: player.id, name: player.name }));
+    const holeParsForShare = playMode === "solo" ? soloHolePars : snapshot?.session.hole_pars ?? [];
+    const holeNumbers = Array.from({ length: holeParsForShare.length }, (_, index) => index + 1);
+
+    const holeRows: ShareRow[] = holeNumbers.map((holeNumber) => ({
+      type: "hole",
+      label: holeNumber,
+      par: holeParsForShare[holeNumber - 1] ?? DEFAULT_PAR,
+      values: playersForShare.map((player) => getShareScore(player.id, holeNumber) ?? "-")
+    }));
+
+    const front = holeNumbers.filter((holeNumber) => holeNumber <= 9);
+    const back = holeNumbers.filter((holeNumber) => holeNumber > 9 && holeNumber <= 18);
+    const last = holeNumbers.filter((holeNumber) => holeNumber > 18);
+
+    const summaryRows: ShareRow[] = [];
+    const pushSummary = (label: string, holes: number[]) => {
+      if (holes.length === 0) {
+        return;
+      }
+      const par = holes.reduce((sum, holeNumber) => sum + (holeParsForShare[holeNumber - 1] ?? DEFAULT_PAR), 0);
+      summaryRows.push({
+        type: "summary",
+        label,
+        par,
+        values: playersForShare.map((player) => shareRelativeForHoles(player.id, holes, holeParsForShare))
+      });
+    };
+
+    pushSummary("Front 9", front);
+    pushSummary("Back 9", back);
+    pushSummary(`Last ${last.length}`, last);
+    pushSummary("Total", holeNumbers);
+
+    return {
+      modeLabel: playMode === "solo" ? "Solo Round" : "Group Round",
+      title:
+        courseName.trim().length > 0
+          ? `${courseName.trim()} Scorecard`
+          : playMode === "solo"
+            ? `${soloName.trim() || "Solo Player"} Scorecard`
+            : "Group Scorecard",
+      playedOn: new Date().toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+      }),
+      players: playersForShare,
+      rows: [...holeRows, ...summaryRows]
+    };
+  }, [playMode, snapshot, soloHolePars, soloName, soloScores, view, pendingGroupScores]);
+
+  async function buildSharePngBlob(): Promise<Blob | null> {
+    if (!shareCardRef.current) {
+      return null;
+    }
+    return toBlob(shareCardRef.current, {
+      pixelRatio: 2,
+      backgroundColor: "#f8f7f1",
+      cacheBust: true
+    });
+  }
+
+  function getShareFileName(): string {
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
+    return `birdcage-scorecard-${stamp}.png`;
+  }
+
+  async function handleSaveScorecardImage() {
+    if (shareBusy || !shareModel) {
+      return;
+    }
+    setShareBusy(true);
+    setError(null);
+    try {
+      const blob = await buildSharePngBlob();
+      if (!blob) {
+        throw new Error("Could not export image.");
+      }
+      downloadBlob(blob, getShareFileName());
+      setShareModalOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save scorecard image.");
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function handleShareScorecardImage() {
+    if (shareBusy || !shareModel) {
+      return;
+    }
+    setShareBusy(true);
+    setError(null);
+    try {
+      const blob = await buildSharePngBlob();
+      if (!blob) {
+        throw new Error("Could not export image.");
+      }
+      const filename = getShareFileName();
+      const file = new File([blob], filename, { type: "image/png" });
+      const nativeShare = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (navigator.share && nativeShare.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: "Birdcage scorecard",
+          text: "Round recap from Birdcage",
+          files: [file]
+        });
+      } else {
+        downloadBlob(blob, filename);
+      }
+      setShareModalOpen(false);
+    } catch (shareError) {
+      const isAbort = shareError instanceof Error && shareError.name === "AbortError";
+      if (!isAbort) {
+        setError(shareError instanceof Error ? shareError.message : "Unable to share scorecard image.");
+      }
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  function openShareFlow() {
+    setSoloMenuOpen(false);
+    setGroupMenuOpen(false);
+    setPlayHelpOpen(false);
+    if (shareModalOpen) {
+      setShareModalOpen(false);
+      return;
+    }
+    if (courseName.trim().length === 0) {
+      setCoursePromptDraft("");
+      setCoursePromptOpen(true);
+      return;
+    }
+    setShareModalOpen(true);
+  }
+
+  function submitCoursePrompt() {
+    const trimmed = coursePromptDraft.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    setCourseName(trimmed);
+    setCourseNameEditing(false);
+    setCoursePromptOpen(false);
+    setShareModalOpen(true);
   }
 
   function applyLocalSnapshotScore(
@@ -1872,6 +2102,9 @@ export default function App() {
               if (playHelpOpen) {
                 setPlayHelpOpen(false);
               }
+              if (shareModalOpen) {
+                setShareModalOpen(false);
+              }
             }}
           >
             <header
@@ -1900,6 +2133,32 @@ export default function App() {
               </div>
               {playMode === "group" && (
                 <div className="header-right-cluster">
+                  <button
+                    type="button"
+                    className="play-share-icon"
+                    aria-label="Share scorecard"
+                    aria-expanded={shareModalOpen}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openShareFlow();
+                    }}
+                  >
+                    <svg
+                      className="play-share-icon-glyph"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path
+                        d="M12 3v12M8.5 6.5L12 3l3.5 3.5M6 10H4.5A1.5 1.5 0 0 0 3 11.5v8A1.5 1.5 0 0 0 4.5 21h15a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19.5 10H18"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.9"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     className="play-help-icon"
@@ -1972,6 +2231,32 @@ export default function App() {
                 <div className="header-right-cluster">
                   <button
                     type="button"
+                    className="play-share-icon"
+                    aria-label="Share scorecard"
+                    aria-expanded={shareModalOpen}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openShareFlow();
+                    }}
+                  >
+                    <svg
+                      className="play-share-icon-glyph"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path
+                        d="M12 3v12M8.5 6.5L12 3l3.5 3.5M6 10H4.5A1.5 1.5 0 0 0 3 11.5v8A1.5 1.5 0 0 0 4.5 21h15a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19.5 10H18"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.9"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
                     className="play-help-icon"
                     aria-label="How to use Birdcage"
                     aria-expanded={playHelpOpen}
@@ -2031,8 +2316,41 @@ export default function App() {
             <section className="card score-card">
               {playMode === "group" && snapshot && (
                 <div className="session-row">
-                  <span>Code: {snapshot.session.code}</span>
-                  <span>Ends in 24h</span>
+                  {courseNameEditing || courseName.trim().length === 0 ? (
+                    <input
+                      className="course-name-input"
+                      value={courseName}
+                      onChange={(event) => setCourseName(event.target.value)}
+                      onBlur={() => {
+                        const trimmed = courseName.trim();
+                        if (trimmed.length > 0) {
+                          setCourseName(trimmed);
+                          setCourseNameEditing(false);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          const trimmed = courseName.trim();
+                          if (trimmed.length > 0) {
+                            setCourseName(trimmed);
+                            setCourseNameEditing(false);
+                          }
+                        }
+                      }}
+                      placeholder="Course name"
+                      aria-label="Course name"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="course-name-display"
+                      onClick={() => setCourseNameEditing(true)}
+                      aria-label="Edit course name"
+                    >
+                      {courseName}
+                    </button>
+                  )}
+                  <span className="session-code-text">Code: {snapshot.session.code}</span>
                 </div>
               )}
 
@@ -2337,6 +2655,150 @@ export default function App() {
                   Done
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+        {shareModalOpen && view === "play" && shareModel && (
+          <div
+            className="end-dialog share-scorecard-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-scorecard-title"
+            onClick={() => {
+              if (!shareBusy) {
+                setShareModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="end-dialog-card share-scorecard-card"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <h3 id="share-scorecard-title">Share scorecard</h3>
+              <p>Export this round as a PNG image.</p>
+              <div className="end-dialog-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => {
+                    void handleShareScorecardImage();
+                  }}
+                >
+                  {shareBusy ? "Working..." : "Share via apps/text"}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => {
+                    void handleSaveScorecardImage();
+                  }}
+                >
+                  Save image
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => setShareModalOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {coursePromptOpen && view === "play" && (
+          <div
+            className="end-dialog share-scorecard-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-prompt-title"
+            onClick={() => {
+              setCoursePromptOpen(false);
+            }}
+          >
+            <div
+              className="end-dialog-card share-scorecard-card"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <h3 id="course-prompt-title">Which course did you play today?</h3>
+              <input
+                className="text-input"
+                value={coursePromptDraft}
+                onChange={(event) => setCoursePromptDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    submitCoursePrompt();
+                  }
+                }}
+                placeholder="Course name"
+                autoFocus
+              />
+              <div className="end-dialog-actions">
+                <button className="primary-button" type="button" onClick={submitCoursePrompt}>
+                  Continue
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setCoursePromptOpen(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {shareModel && (
+          <div className="share-capture-layer" aria-hidden="true">
+            <div className="share-scorecard-canvas" ref={shareCardRef}>
+              <div className="share-scorecard-head">
+                <img src={brandLogoImg} alt="" className="share-scorecard-logo" />
+                <p className="share-scorecard-mode">{shareModel.modeLabel}</p>
+                <h3>{shareModel.title}</h3>
+                <p className="share-scorecard-date">{shareModel.playedOn}</p>
+              </div>
+              <table className="share-scorecard-table">
+                <thead>
+                  <tr>
+                    <th>Hole</th>
+                    <th>Par</th>
+                    {shareModel.players.map((player) => (
+                      <th key={`share-head-${player.id}`}>{formatChipName(player.name)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shareModel.rows.map((row, index) => (
+                    <tr key={`share-row-${index}`} className={row.type === "summary" ? "share-summary-row" : ""}>
+                      <td>{row.label}</td>
+                      <td>{row.par}</td>
+                      {row.values.map((value, valueIndex) => (
+                        <td key={`share-cell-${index}-${valueIndex}`}>
+                          {(() => {
+                            if (row.type !== "hole" || typeof value !== "number") {
+                              return value;
+                            }
+                            const motif = scoreMotifClass(value, row.par);
+                            if (!motif) {
+                              return value;
+                            }
+                            return <span className={`score-mark share-score-mark ${motif}`}>{value}</span>;
+                          })()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

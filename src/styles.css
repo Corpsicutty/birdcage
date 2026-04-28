@@ -621,7 +621,8 @@ p {
 
 .top-header--group,
 .top-header--play-tools {
-  grid-template-columns: 56px 1fr auto;
+  grid-template-columns: 56px 1fr 56px;
+  position: relative;
 }
 
 .header-right-cluster {
@@ -630,6 +631,10 @@ p {
   justify-content: flex-end;
   gap: 4px;
   min-width: 0;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .play-help-icon {
@@ -647,6 +652,35 @@ p {
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.play-share-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid rgba(95, 115, 88, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #3d5240;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.play-share-icon[aria-expanded="true"] {
+  background: #edf2e6;
+  border-color: #6e8361;
+  color: #1d2a1e;
+}
+
+.play-share-icon-glyph {
+  width: 1rem;
+  height: 1rem;
+  display: block;
 }
 
 .play-help-icon[aria-expanded="true"] {
@@ -759,6 +793,7 @@ p {
 
 .header-center {
   text-align: center;
+  padding-inline: 4.9rem;
 }
 
 .header-center h2 {
@@ -820,9 +855,42 @@ p {
 
 .session-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  color: #4f644f;
+  gap: 8px;
   font-size: 0.85rem;
+}
+
+.course-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid #d4d8cb;
+  border-radius: 8px;
+  background: #fff;
+  color: #233323;
+  padding: 6px 8px;
+}
+
+.course-name-display {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #2f4a2f;
+  padding: 0;
+  text-align: left;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.session-code-text {
+  flex: 0 0 auto;
+  color: #b73b3b;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .player-chip-row {
@@ -1208,4 +1276,91 @@ p {
   text-decoration-style: dotted;
   text-decoration-color: #8aa382;
   text-underline-offset: 2px;
+}
+
+.share-scorecard-dialog {
+  z-index: 42;
+}
+
+.share-scorecard-card p {
+  margin-bottom: 12px;
+}
+
+.share-scorecard-card .text-input {
+  margin: 8px 0 12px;
+}
+
+.share-capture-layer {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.share-scorecard-canvas {
+  width: 1080px;
+  padding: 36px;
+  border-radius: 22px;
+  border: 1px solid #d8ddcf;
+  background: #f8f7f1;
+  color: #1f2b1f;
+}
+
+.share-scorecard-head {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.share-scorecard-logo {
+  width: 220px;
+  display: block;
+  margin: 0 auto 10px;
+}
+
+.share-scorecard-mode {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5c6f58;
+}
+
+.share-scorecard-head h3 {
+  margin: 6px 0;
+  font-size: 34px;
+  color: #1d2a1e;
+}
+
+.share-scorecard-date {
+  font-size: 17px;
+  color: #5a6b58;
+}
+
+.share-scorecard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 18px;
+}
+
+.share-scorecard-table th,
+.share-scorecard-table td {
+  border-bottom: 1px solid #e2e8db;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.share-scorecard-table th {
+  font-size: 17px;
+  color: #4b5f4b;
+}
+
+.share-summary-row td {
+  font-weight: 700;
+  background: #eef3e8;
+}
+
+.share-score-mark {
+  width: 1.55rem;
+  height: 1.55rem;
 }
