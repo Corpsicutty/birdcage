@@ -925,6 +925,50 @@ p {
   font-weight: 700;
 }
 
+.score-mark {
+  width: 1.42rem;
+  height: 1.42rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.score-mark--birdie {
+  border: 1.6px solid #5e7357;
+  border-radius: 999px;
+}
+
+.score-mark--eagle {
+  border: 1.6px solid #4f644f;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #4f644f;
+}
+
+.score-mark--albatross {
+  border: 1.6px solid #435b44;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #435b44, 0 0 0 5.25px #ffffff, 0 0 0 6.75px #435b44;
+}
+
+.score-mark--bogey {
+  border: 1.6px solid #8a6d57;
+  border-radius: 2px;
+}
+
+.score-mark--double-bogey {
+  border: 1.6px solid #8a6d57;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #8a6d57;
+}
+
+.score-mark--triple-bogey {
+  border: 1.6px solid #8a6d57;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #8a6d57, 0 0 0 5.25px #ffffff, 0 0 0 6.75px #8a6d57;
+}
+
 .solo-name-header-wrap {
   display: inline-flex;
   align-items: center;
@@ -1025,6 +1069,28 @@ p {
 .totals-row td {
   font-weight: 700;
   background: #f4f7f1;
+  vertical-align: middle;
+}
+
+.totals-row td:first-child {
+  text-align: right;
+}
+
+.totals-row .totals-label-wrap.hole-number-cell-content {
+  margin-left: auto;
+  justify-content: end;
+  align-items: center;
+}
+
+.totals-row .totals-label-wrap .hole-number-value {
+  position: relative;
+  top: 1px;
+  color: #1f3e5a;
+}
+
+.totals-row--grand-total td {
+  background: #e8efe2;
+  border-top: 2px solid #c5d4bb;
 }
 
 .hole-nav {

@@ -48,6 +48,13 @@ import groupModeImg from "../img/group.png";
 type View = "splash" | "group-menu" | "join-session" | "new-session" | "claim-name" | "play";
 type PlayMode = "solo" | "group" | null;
 type SoloResetAction = "hole" | "scores" | "round";
+type PendingGroupScoreMap = Record<string, number>;
+
+const SCORE_WRITE_DEBOUNCE_MS = 160;
+
+function scoreKey(playerId: string, holeNumber: number): string {
+  return `${playerId}:${holeNumber}`;
+}
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -65,6 +72,40 @@ function formatRelative(value: number): string {
     return `${value}`;
   }
   return "E";
+}
+
+function formatChipName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= 6) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 6)}…`;
+}
+
+function renderScoreWithMotif(strokes: number | null, par: number): string | number | JSX.Element {
+  if (strokes == null) {
+    return "-";
+  }
+  const relative = strokes - par;
+  if (relative === -1) {
+    return <span className="score-mark score-mark--birdie">{strokes}</span>;
+  }
+  if (relative === -2) {
+    return <span className="score-mark score-mark--eagle">{strokes}</span>;
+  }
+  if (relative === -3) {
+    return <span className="score-mark score-mark--albatross">{strokes}</span>;
+  }
+  if (relative === 1) {
+    return <span className="score-mark score-mark--bogey">{strokes}</span>;
+  }
+  if (relative === 2) {
+    return <span className="score-mark score-mark--double-bogey">{strokes}</span>;
+  }
+  if (relative === 3) {
+    return <span className="score-mark score-mark--triple-bogey">{strokes}</span>;
+  }
+  return strokes;
 }
 
 type SoloInitState = {
@@ -187,10 +228,10 @@ function PlayHelpDialogContent({ playMode }: { playMode: "solo" | "group" }) {
             <h3 className="play-help-heading">Session admin</h3>
             <p>
               The person who <strong>created the session</strong> (the <strong>first name</strong> in the
-              list when the host set up the game) is the <strong>admin</strong>. The admin can change{" "}
-              <strong>pars</strong>, <strong>add or remove holes</strong>, and use the <strong>group menu</strong>{" "}
-              (≡) for whole-session resets. Other players only change scores for the player they{" "}
-              <strong>claimed</strong> when they joined.
+              list when the host set up the game) is the <strong>admin</strong>. The admin can{" "}
+              <strong>add or remove holes</strong> and use the <strong>group menu</strong> (≡) for
+              whole-session resets. All players can update <strong>pars</strong> if the group notices a
+              hole is set incorrectly.
             </p>
           </section>
           <section className="play-help-section">
@@ -211,12 +252,12 @@ function PlayHelpDialogContent({ playMode }: { playMode: "solo" | "group" }) {
             </p>
           </section>
           <section className="play-help-section">
-            <h3 className="play-help-heading">Par and holes (admin)</h3>
+            <h3 className="play-help-heading">Par and holes</h3>
             <p>
-              The admin can tap <strong>Par</strong> in the header or any <strong>par</strong> in the table
+              Any player can tap <strong>Par</strong> in the header or any <strong>par</strong> in the table
               to edit. Use <strong>+</strong> on the <strong>Front 9</strong> row for nine more holes, or the
               bottom <strong>+</strong> row to add one hole. Use <strong>−</strong> on hole numbers 10+ to
-              remove a back hole. Non-admins see the same card but cannot edit layout or pars.
+              remove a back hole (admin only).
             </p>
           </section>
           <section className="play-help-section">
@@ -267,8 +308,12 @@ export default function App() {
   const [pendingGroupReset, setPendingGroupReset] = useState<SoloResetAction | null>(null);
   const [splashInfoOpen, setSplashInfoOpen] = useState(false);
   const [playHelpOpen, setPlayHelpOpen] = useState(false);
+  const [pendingGroupScores, setPendingGroupScores] = useState<PendingGroupScoreMap>({});
 
   const suppressGroupSessionRealtimeRef = useRef(false);
+  const pendingGroupScoresRef = useRef<PendingGroupScoreMap>({});
+  const scoreWriteTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const scoreWriteSeqRef = useRef<Record<string, number>>({});
 
   const soloHoles = useMemo(
     () => Array.from({ length: soloHolePars.length }, (_, index) => ({ number: index + 1 })),
@@ -310,7 +355,7 @@ export default function App() {
     snapshot.session.status === "active" &&
     new Date(snapshot.session.expires_at).getTime() > Date.now();
   const canEditGroupLayout = isSessionCreator && groupSessionLive;
-  const canEditPar = playMode === "solo" || isSessionCreator;
+  const canEditPar = playMode === "solo" || groupSessionLive;
   const playHoleCount =
     playMode === "solo"
       ? soloHoles.length
@@ -342,7 +387,7 @@ export default function App() {
   function openParDialog(holeNumber: number) {
     if (playMode === "solo") {
       // allow
-    } else if (playMode === "group" && snapshot && snapshot.session.created_by_token === playerToken) {
+    } else if (playMode === "group" && groupSessionLive) {
       // allow
     } else {
       return;
@@ -350,6 +395,75 @@ export default function App() {
     setParEditHole(holeNumber);
     setParDraft(String(parForHole(holeNumber)));
     setParDialogOpen(true);
+  }
+
+  function setPendingGroupScore(key: string, value: number | null) {
+    if (value == null) {
+      delete pendingGroupScoresRef.current[key];
+      setPendingGroupScores((current) => {
+        if (!(key in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    pendingGroupScoresRef.current[key] = value;
+    setPendingGroupScores((current) => ({ ...current, [key]: value }));
+  }
+
+  function clearAllPendingGroupScoreWrites() {
+    for (const timer of Object.values(scoreWriteTimersRef.current)) {
+      clearTimeout(timer);
+    }
+    scoreWriteTimersRef.current = {};
+    scoreWriteSeqRef.current = {};
+    pendingGroupScoresRef.current = {};
+    setPendingGroupScores({});
+  }
+
+  function scheduleGroupScoreWrite(
+    sessionId: string,
+    playerId: string,
+    holeNumber: number,
+    strokes: number
+  ) {
+    const key = scoreKey(playerId, holeNumber);
+    const priorTimer = scoreWriteTimersRef.current[key];
+    if (priorTimer) {
+      clearTimeout(priorTimer);
+    }
+
+    const seq = (scoreWriteSeqRef.current[key] ?? 0) + 1;
+    scoreWriteSeqRef.current[key] = seq;
+
+    scoreWriteTimersRef.current[key] = setTimeout(() => {
+      void (async () => {
+        try {
+          await setScore(sessionId, playerId, holeNumber, strokes);
+          if (scoreWriteSeqRef.current[key] !== seq) {
+            return;
+          }
+          applyLocalSnapshotScore(sessionId, playerId, holeNumber, strokes);
+          setPendingGroupScore(key, null);
+        } catch (scoreError) {
+          if (scoreWriteSeqRef.current[key] !== seq) {
+            return;
+          }
+          setError(
+            scoreError instanceof Error ? scoreError.message : "Unable to update score right now."
+          );
+          setPendingGroupScore(key, null);
+          await refreshSnapshot(sessionId);
+        } finally {
+          if (scoreWriteTimersRef.current[key]) {
+            delete scoreWriteTimersRef.current[key];
+          }
+        }
+      })();
+    }, SCORE_WRITE_DEBOUNCE_MS);
   }
 
   function resetToSplash() {
@@ -371,6 +485,7 @@ export default function App() {
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    clearAllPendingGroupScoreWrites();
     clearActiveGroupSession();
     setRejoinable(null);
   }
@@ -394,6 +509,7 @@ export default function App() {
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    clearAllPendingGroupScoreWrites();
     setJoinCode("");
   }
 
@@ -415,6 +531,7 @@ export default function App() {
     setParEditHole(null);
     setSplashInfoOpen(false);
     setPlayHelpOpen(false);
+    clearAllPendingGroupScoreWrites();
 
     const stored = readActiveGroupSession();
     if (stored) {
@@ -565,6 +682,20 @@ export default function App() {
 
   async function refreshSnapshot(sessionId: string) {
     const next = await getSessionSnapshot(sessionId);
+    const unresolved: PendingGroupScoreMap = {};
+    for (const [key, pendingStroke] of Object.entries(pendingGroupScoresRef.current)) {
+      const [playerId, holeString] = key.split(":");
+      const holeNumber = Number(holeString);
+      const serverStroke =
+        next.scores.find(
+          (score) => score.player_id === playerId && score.hole_number === holeNumber
+        )?.strokes ?? null;
+      if (serverStroke !== pendingStroke) {
+        unresolved[key] = pendingStroke;
+      }
+    }
+    pendingGroupScoresRef.current = unresolved;
+    setPendingGroupScores(unresolved);
     setSnapshot(next);
     const alreadySelected = next.players.find((player) => player.id === activePlayerId);
     if (!alreadySelected) {
@@ -661,6 +792,10 @@ export default function App() {
   }, [playMode, snapshot?.session.id]);
 
   function getGroupStroke(playerId: string, holeNumber: number): number | null {
+    const pending = pendingGroupScores[scoreKey(playerId, holeNumber)];
+    if (pending != null) {
+      return pending;
+    }
     if (!snapshot) {
       return null;
     }
@@ -760,15 +895,10 @@ export default function App() {
       return;
     }
 
+    const key = scoreKey(activePlayerId, activeHole.number);
+    setPendingGroupScore(key, nextStroke);
     applyLocalSnapshotScore(snapshot.session.id, activePlayerId, activeHole.number, nextStroke);
-    try {
-      await setScore(snapshot.session.id, activePlayerId, activeHole.number, nextStroke);
-    } catch (scoreError) {
-      setError(
-        scoreError instanceof Error ? scoreError.message : "Unable to update score right now."
-      );
-      await refreshSnapshot(snapshot.session.id);
-    }
+    scheduleGroupScoreWrite(snapshot.session.id, activePlayerId, activeHole.number, nextStroke);
   }
 
   function expandSoloToBackNine() {
@@ -975,6 +1105,7 @@ export default function App() {
     }
     setLoading(true);
     setError(null);
+    clearAllPendingGroupScoreWrites();
     const sessionId = snapshot.session.id;
     try {
       if (pendingGroupReset === "hole") {
@@ -1012,6 +1143,7 @@ export default function App() {
     }
     setLoading(true);
     setError(null);
+    clearAllPendingGroupScoreWrites();
     const sessionId = snapshot.session.id;
     try {
       await appendHolesToSession(
@@ -1033,6 +1165,7 @@ export default function App() {
     }
     setLoading(true);
     setError(null);
+    clearAllPendingGroupScoreWrites();
     const sessionId = snapshot.session.id;
     try {
       await appendHolesToSession(sessionId, [DEFAULT_PAR]);
@@ -1055,6 +1188,7 @@ export default function App() {
     const sessionId = snapshot.session.id;
     const afterLen = snapshot.session.hole_pars.length - 1;
     setError(null);
+    clearAllPendingGroupScoreWrites();
     suppressGroupSessionRealtimeRef.current = true;
     setSnapshot((s) => (s ? snapshotAfterRemovingGroupHole(s, holeNumber) : s));
     setCurrentHole((c) => {
@@ -1074,6 +1208,14 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    return () => {
+      for (const timer of Object.values(scoreWriteTimersRef.current)) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
+
   function renderScoreTable() {
     if (playMode === "solo") {
       const relative = soloHoles.reduce((sum, hole) => {
@@ -1086,6 +1228,8 @@ export default function App() {
       }, 0);
       const frontHoles = soloHoles.filter((hole) => hole.number <= 9);
       const backHoles = soloHoles.filter((hole) => hole.number > 9);
+      const middleHoles = soloHoles.filter((hole) => hole.number > 9 && hole.number <= 18);
+      const lastHoles = soloHoles.filter((hole) => hole.number > 18);
       const frontRelative = frontHoles.reduce((sum, hole) => {
         const strokes = soloScores[hole.number];
         if (strokes == null) {
@@ -1102,6 +1246,22 @@ export default function App() {
         const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
         return sum + (strokes - par);
       }, 0);
+      const middleRelative = middleHoles.reduce((sum, hole) => {
+        const strokes = soloScores[hole.number];
+        if (strokes == null) {
+          return sum;
+        }
+        const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
+        return sum + (strokes - par);
+      }, 0);
+      const lastRelative = lastHoles.reduce((sum, hole) => {
+        const strokes = soloScores[hole.number];
+        if (strokes == null) {
+          return sum;
+        }
+        const par = soloHolePars[hole.number - 1] ?? DEFAULT_PAR;
+        return sum + (strokes - par);
+      }, 0);
       const frontParTotal = frontHoles.reduce(
         (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
         0
@@ -1110,7 +1270,16 @@ export default function App() {
         (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
         0
       );
-      const backSummaryLabel = backHoles.length <= 9 ? "Back 9" : `Back ${backHoles.length}`;
+      const middleParTotal = middleHoles.reduce(
+        (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
+        0
+      );
+      const lastParTotal = lastHoles.reduce(
+        (sum, hole) => sum + (soloHolePars[hole.number - 1] ?? DEFAULT_PAR),
+        0
+      );
+      const middleSummaryLabel = middleHoles.length <= 9 ? "Back 9" : `Back ${middleHoles.length}`;
+      const lastSummaryLabel = `Last ${lastHoles.length}`;
 
       return (
         <div className="score-table-wrap">
@@ -1147,7 +1316,12 @@ export default function App() {
                   >
                     {parForHole(hole.number)}
                   </td>
-                  <td>{soloScores[hole.number] ?? "-"}</td>
+                  <td>
+                    {renderScoreWithMotif(
+                      soloScores[hole.number] ?? null,
+                      soloHolePars[hole.number - 1] ?? DEFAULT_PAR
+                    )}
+                  </td>
                 </tr>
               ))}
               <tr className="totals-row">
@@ -1194,7 +1368,12 @@ export default function App() {
                   >
                     {parForHole(hole.number)}
                   </td>
-                  <td>{soloScores[hole.number] ?? "-"}</td>
+                  <td>
+                    {renderScoreWithMotif(
+                      soloScores[hole.number] ?? null,
+                      soloHolePars[hole.number - 1] ?? DEFAULT_PAR
+                    )}
+                  </td>
                 </tr>
               ))}
               <tr className="hole-add-row">
@@ -1216,14 +1395,31 @@ export default function App() {
                 <td>-</td>
                 <td>-</td>
               </tr>
-              {backHoles.length > 0 && (
+              {middleHoles.length > 0 && (
                 <tr className="totals-row">
-                  <td>{backSummaryLabel}</td>
-                  <td>{backParTotal}</td>
-                  <td>{formatRelative(backRelative)}</td>
+                  <td>
+                    <div className="totals-label-wrap hole-number-cell-content">
+                      <span className="hole-symbol-slot" aria-hidden="true" />
+                      <span className="hole-number-value">{middleSummaryLabel}</span>
+                    </div>
+                  </td>
+                  <td>{middleParTotal}</td>
+                  <td>{formatRelative(middleRelative)}</td>
                 </tr>
               )}
-              <tr className="totals-row">
+              {lastHoles.length > 0 && (
+                <tr className="totals-row">
+                  <td>
+                    <div className="totals-label-wrap hole-number-cell-content">
+                      <span className="hole-symbol-slot" aria-hidden="true" />
+                      <span className="hole-number-value">{lastSummaryLabel}</span>
+                    </div>
+                  </td>
+                  <td>{lastParTotal}</td>
+                  <td>{formatRelative(lastRelative)}</td>
+                </tr>
+              )}
+              <tr className="totals-row totals-row--grand-total">
                 <td>Total</td>
                 <td>{totalParForTable}</td>
                 <td>{formatRelative(relative)}</td>
@@ -1250,10 +1446,15 @@ export default function App() {
 
     const frontHolesG = groupHoles.filter((h) => h.number <= 9);
     const backHolesG = groupHoles.filter((h) => h.number > 9);
-    const backSummaryLabelG =
-      backHolesG.length > 0 ? (backHolesG.length <= 9 ? "Back 9" : `Back ${backHolesG.length}`) : "";
+    const middleHolesG = groupHoles.filter((h) => h.number > 9 && h.number <= 18);
+    const lastHolesG = groupHoles.filter((h) => h.number > 18);
+    const middleSummaryLabelG =
+      middleHolesG.length > 0 ? (middleHolesG.length <= 9 ? "Back 9" : `Back ${middleHolesG.length}`) : "";
+    const lastSummaryLabelG = `Last ${lastHolesG.length}`;
     const frontParTotalG = frontHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
     const backParTotalG = backHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
+    const middleParTotalG = middleHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
+    const lastParTotalG = lastHolesG.reduce((sum, h) => sum + parForHole(h.number), 0);
 
     return (
       <div className="score-table-wrap">
@@ -1263,7 +1464,9 @@ export default function App() {
               <th>HOLE</th>
               <th>PAR</th>
               {snapshot.players.map((player) => (
-                <th key={player.id}>{player.name}</th>
+                <th key={player.id} title={player.name}>
+                  {formatChipName(player.name)}
+                </th>
               ))}
             </tr>
           </thead>
@@ -1284,7 +1487,10 @@ export default function App() {
                 </td>
                 {snapshot.players.map((player) => (
                   <td key={`${hole.number}-${player.id}`}>
-                    {getGroupStroke(player.id, hole.number) ?? "-"}
+                    {renderScoreWithMotif(
+                      getGroupStroke(player.id, hole.number),
+                      snapshot.session.hole_pars[hole.number - 1] ?? DEFAULT_PAR
+                    )}
                   </td>
                 ))}
               </tr>
@@ -1349,7 +1555,10 @@ export default function App() {
                 </td>
                 {snapshot.players.map((player) => (
                   <td key={`${hole.number}-${player.id}`}>
-                    {getGroupStroke(player.id, hole.number) ?? "-"}
+                    {renderScoreWithMotif(
+                      getGroupStroke(player.id, hole.number),
+                      snapshot.session.hole_pars[hole.number - 1] ?? DEFAULT_PAR
+                    )}
                   </td>
                 ))}
               </tr>
@@ -1379,16 +1588,35 @@ export default function App() {
                 ))}
               </tr>
             )}
-            {backHolesG.length > 0 && (
+            {middleHolesG.length > 0 && (
               <tr className="totals-row">
-                <td>{backSummaryLabelG}</td>
-                <td>{backParTotalG}</td>
+                <td>
+                  <div className="totals-label-wrap hole-number-cell-content">
+                    <span className="hole-symbol-slot" aria-hidden="true" />
+                    <span className="hole-number-value">{middleSummaryLabelG}</span>
+                  </div>
+                </td>
+                <td>{middleParTotalG}</td>
                 {snapshot.players.map((player) => (
-                  <td key={`backtot-${player.id}`}>{formatRelative(relForHolesOnPlayer(player, backHolesG))}</td>
+                  <td key={`backtot-${player.id}`}>{formatRelative(relForHolesOnPlayer(player, middleHolesG))}</td>
                 ))}
               </tr>
             )}
-            <tr className="totals-row">
+            {lastHolesG.length > 0 && (
+              <tr className="totals-row">
+                <td>
+                  <div className="totals-label-wrap hole-number-cell-content">
+                    <span className="hole-symbol-slot" aria-hidden="true" />
+                    <span className="hole-number-value">{lastSummaryLabelG}</span>
+                  </div>
+                </td>
+                <td>{lastParTotalG}</td>
+                {snapshot.players.map((player) => (
+                  <td key={`lasttot-${player.id}`}>{formatRelative(relForHolesOnPlayer(player, lastHolesG))}</td>
+                ))}
+              </tr>
+            )}
+            <tr className="totals-row totals-row--grand-total">
               <td>Total</td>
               <td>{totalParForTable}</td>
               {snapshot.players.map((player) => (
@@ -1817,7 +2045,7 @@ export default function App() {
                       onClick={() => setActivePlayerId(player.id)}
                     >
                       <span>{getInitials(player.name)}</span>
-                      <small>{player.name}</small>
+                      <small title={player.name}>{formatChipName(player.name)}</small>
                     </button>
                   ))}
                 </div>
