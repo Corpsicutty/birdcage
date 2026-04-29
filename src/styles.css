@@ -617,6 +617,8 @@ p {
   display: grid;
   grid-template-columns: 56px 1fr 56px;
   align-items: center;
+  position: relative;
+  z-index: 30;
 }
 
 .top-header--group,
@@ -758,6 +760,7 @@ p {
   position: relative;
   display: flex;
   justify-content: flex-end;
+  z-index: 35;
 }
 
 .solo-menu {
